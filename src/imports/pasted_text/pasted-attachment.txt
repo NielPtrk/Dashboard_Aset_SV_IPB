@@ -1,0 +1,859 @@
+Saya sedang membangun web app “Aset SV IPB” untuk Sistem Informasi Manajemen Aset Sekolah Vokasi IPB. Desain UI existing sudah bagus dan sudah ada banyak halaman/menu/submenu/tabs, tetapi masalah fatalnya adalah seluruh data masih statis: angka KPI, warna badge, chart, table, filter, status, detail drawer, dan isi dashboard belum saling terhubung satu sama lain.
+
+Tugas utama kamu:
+REFactor / perbaiki sistem agar seluruh halaman menjadi data-connected, integrated, dan reactive berbasis satu sumber data utama, yaitu tabel Data Aset.
+
+PENTING:
+Ini bukan redesign visual.
+Jangan mengubah tampilan besar-besaran.
+Jangan mengganti sidebar, topbar, warna, typography, spacing, card, table, badge, button, tabs, atau layout utama yang sudah ada.
+Fokus pada integrasi data, state management, data flow, computed metrics, relationship antar halaman, dan interaksi antar menu.
+
+Tujuan akhir:
+1. Data Aset menjadi single source of truth.
+2. Semua dashboard mengambil data dari Data Aset dan data transaksi terkait.
+3. Semua KPI, chart, badge, table, dan jumlah data dihitung otomatis dari dataset, bukan hardcoded.
+4. Klik baris di Data Aset harus membuka detail aset yang konsisten dengan data yang sama.
+5. Klik aset dari dashboard, stock opname, maintenance, mutasi, pengadaan, lokasi, PIC, atau dokumen harus mengarah ke detail aset yang sama.
+6. Perubahan data di satu modul harus memengaruhi modul lain secara logis.
+7. Sistem harus terasa advanced, data-driven, kolaboratif, dan terintegrasi, bukan sekadar mockup statis.
+
+==================================================
+A. PERTAHANKAN DESAIN EXISTING
+==================================================
+
+Pertahankan:
+- Sidebar kiri existing.
+- Topbar existing dengan breadcrumb, search, tombol Tanya AI, notification, share.
+- Layout card putih dengan border halus.
+- Background abu sangat muda.
+- Table minimalis.
+- Badge status soft.
+- Button utama hitam.
+- Tabs horizontal.
+- Search, filter, import, export, pagination.
+- Desain clean, enterprise, administratif, dan tidak ramai.
+
+Jangan:
+- Jangan redesign total.
+- Jangan mengganti warna utama.
+- Jangan membuat dashboard terlalu ramai.
+- Jangan membuat gaya baru yang tidak sesuai existing.
+- Jangan membuat data statis baru tanpa koneksi ke data source.
+
+==================================================
+B. MASALAH YANG HARUS DIPERBAIKI
+==================================================
+
+Saat ini:
+- KPI dashboard masih angka statis.
+- Chart masih data statis.
+- Badge status tidak dihitung dari kondisi data.
+- Table antar halaman tidak saling membaca data yang sama.
+- Klik row belum mengirim selected asset ke halaman/detail lain.
+- Menu Data Aset belum menjadi sumber data utama.
+- Stock Opname, Perbaikan, Mutasi, Pengadaan, Lokasi, PIC, Dokumen, Aktivitas, dan Dashboard belum saling terhubung.
+- Warna/status tidak berubah berdasarkan data asli.
+- Filter tidak memengaruhi KPI, chart, dan table.
+- Data di tabs masih berdiri sendiri.
+
+Perbaiki menjadi:
+- Semua data berasal dari centralized data store.
+- Semua KPI dihitung dari data store.
+- Semua chart dihitung dari data store.
+- Semua table membaca data yang sama.
+- Semua filter memengaruhi semua komponen dalam halaman.
+- Semua row click membuka detail data yang sama.
+- Semua status dan warna badge berasal dari rule/logic.
+- Semua menu saling terhubung melalui asset_id / kode_tag_aset.
+
+==================================================
+C. SUMBER DATA UTAMA
+==================================================
+
+Gunakan Data Aset sebagai single source of truth.
+
+Data Aset terdiri dari 4 jenis aset:
+1. Peralatan & Mesin (PM)
+2. Aset Tak Berwujud (ATB)
+3. Aset Tetap Lainnya (ATL)
+4. Alat Angkutan (AL)
+
+Setiap aset harus memiliki minimal:
+- asset_id
+- kode_aset
+- kode_barang
+- nama_aset
+- kategori_aset
+- jenis_aset: PM / ATB / ATL / AL
+- nama_unit
+- tahun_buku
+- tanggal_pengadaan
+- tanggal_perolehan
+- harga_perolehan
+- nilai_buku
+- penyusutan
+- akumulasi_penyusutan
+- masa_manfaat
+- sisa_masa_manfaat
+- kondisi_legacy
+- status_verifikasi
+- dokumen
+- referensi
+- url_file
+
+Kolom tambahan yang harus diintegrasikan:
+- kode_tag_aset
+- nama_pic
+- unit_pic
+- kontak_pic
+- tanggal_opname_terakhir
+- status_opname_terakhir
+- kondisi_fisik_opname_terakhir
+- status_lokasi_opname_terakhir
+- diverifikasi_oleh_terakhir
+- catatan_opname_terakhir
+- nama_gedung
+- lantai_level
+- kode_ruangan
+- nama_ruangan_standar
+- kategori_ruangan
+- luas_ruangan_m2
+- kapasitas_orang_ruangan
+- latitude
+- longitude
+- referensi_denah
+- status_kejelasan_lokasi
+- status_penggunaan_aset
+- tanggal_maintenance_terakhir
+- jenis_maintenance_terakhir
+- kategori_kerusakan_terakhir
+- tingkat_kerusakan_terakhir
+- biaya_maintenance_terakhir
+- total_frekuensi_maintenance
+- total_biaya_maintenance
+- downtime_terakhir_jam
+- rata_rata_waktu_perbaikan_jam
+- jadwal_maintenance_berikutnya
+- tanggal_mutasi_terakhir
+- status_mutasi_terakhir
+- catatan_mutasi_terakhir
+
+==================================================
+D. BUAT CENTRALIZED DATA STORE
+==================================================
+
+Buat struktur data terpusat, misalnya:
+
+assetStore / dataStore:
+- assets
+- stockOpnameRecords
+- maintenanceTickets
+- mutationRequests
+- procurementRequests
+- documents
+- activityLogs
+- users
+- rooms
+- filters
+- selectedAssetId
+- selectedUnit
+- selectedYear
+- selectedCategory
+- selectedCampus
+- selectedRoom
+- selectedStatus
+
+Semua halaman harus membaca dari store ini.
+
+Jangan ada KPI hardcoded seperti:
+totalAset = 123
+
+Harus menjadi:
+totalAset = assets.length
+
+Jangan ada progress hardcoded seperti:
+progressOpname = 76%
+
+Harus menjadi:
+progressOpname = count assets dengan status_opname_terakhir = “Terverifikasi” / total assets
+
+Jangan ada top unit hardcoded.
+Harus dihitung dari grouping nama_unit.
+
+Jangan ada nilai buku hardcoded.
+Harus dihitung dari sum nilai_buku.
+
+Jangan ada aset rusak hardcoded.
+Harus dihitung dari kondisi_legacy + kondisi_fisik_opname_terakhir + tingkat_kerusakan_terakhir.
+
+==================================================
+E. BUAT DATA SELECTOR / COMPUTED METRICS
+==================================================
+
+Buat layer selector/helper function untuk menghitung semua kebutuhan.
+
+Wajib ada function seperti:
+
+1. getAssetById(asset_id)
+Mengambil detail aset berdasarkan asset_id.
+
+2. getAssetByTag(kode_tag_aset)
+Mengambil aset dari hasil scan barcode/QR.
+
+3. getAssetsByCategory(jenis_aset)
+Filter aset PM/ATB/ATL/AL.
+
+4. getAssetsByUnit(nama_unit)
+Filter aset berdasarkan unit.
+
+5. getAssetsByRoom(kode_ruangan)
+Filter aset berdasarkan ruangan.
+
+6. getAssetsByPIC(nama_pic)
+Filter aset berdasarkan PIC.
+
+7. getAssetsByCondition(status)
+Filter aset berdasarkan kondisi sistem.
+
+8. computeTotalAssets()
+Menghitung total aset.
+
+9. computeTotalBookValue()
+Menjumlahkan nilai_buku.
+
+10. computeTotalAcquisitionValue()
+Menjumlahkan harga_perolehan / harga_diterima.
+
+11. computeTotalDepreciation()
+Menjumlahkan penyusutan / akumulasi_penyusutan.
+
+12. computeStockOpnameProgress()
+Menghitung persentase aset terverifikasi.
+
+13. computeMissingAssets()
+Menghitung aset dengan status opname hilang/tidak ditemukan.
+
+14. computeUnverifiedAssets()
+Menghitung aset belum dicek / belum opname.
+
+15. computeAssetsWithoutClearLocation()
+Menghitung aset dengan status_kejelasan_lokasi kosong / tidak jelas / perlu verifikasi.
+
+16. computeAssetsWithoutPIC()
+Menghitung aset tanpa nama_pic.
+
+17. computeMaintenanceOverdue()
+Menghitung aset dengan jadwal_maintenance_berikutnya < tanggal hari ini.
+
+18. computeTopMaintenanceCost()
+Ranking aset/unit dengan total_biaya_maintenance tertinggi.
+
+19. computeTopDamagedAssets()
+Ranking aset dengan total_frekuensi_maintenance tertinggi.
+
+20. computeConditionScore(asset)
+Menghitung skor kondisi berdasarkan:
+- kondisi_legacy
+- kondisi_fisik_opname_terakhir
+- sisa_masa_manfaat
+- total_frekuensi_maintenance
+- total_biaya_maintenance
+- tingkat_kerusakan_terakhir
+- downtime_terakhir_jam
+
+21. computeReplacementPriority(asset)
+Menghitung prioritas penggantian dari:
+- sisa_masa_manfaat rendah/habis
+- kondisi buruk
+- maintenance tinggi
+- biaya maintenance tinggi
+- downtime tinggi
+- nilai buku rendah atau aset sudah tidak ekonomis
+
+22. computeIdleAssetRate()
+Menghitung aset dengan status_penggunaan_aset = idle / total aset.
+
+23. computeRoomUtilization()
+Menghitung rasio aset terhadap kapasitas ruangan.
+
+24. computeRoomsLackingAssets()
+Menghitung ruangan yang kekurangan aset berdasarkan kategori_ruangan, kapasitas_orang_ruangan, dan rule backend.
+
+25. computeProcurementNeed()
+Menghitung kebutuhan pengadaan dari:
+- aset rusak berat
+- aset melewati masa manfaat
+- ruangan kekurangan aset
+- aset yang tidak bisa diperbaiki
+- kebutuhan unit
+- setelah mempertimbangkan aset idle yang bisa direalokasikan
+
+26. computeDataQualityScore(asset)
+Menghitung kualitas data:
+- lengkap
+- perlu verifikasi
+- tidak lengkap
+- konflik data
+
+==================================================
+F. RULE UNTUK STATUS DAN WARNA BADGE
+==================================================
+
+Semua badge status harus dihitung dari data, bukan warna statis.
+
+Gunakan rule:
+
+Status Aset:
+- Baik: kondisi baik, tidak overdue, sisa masa manfaat cukup, tidak sering rusak.
+- Perlu Monitoring: sisa masa manfaat rendah atau maintenance mulai sering.
+- Rusak Ringan: kondisi fisik opname rusak ringan atau tingkat kerusakan ringan.
+- Rusak Berat: tingkat kerusakan berat/kritis atau kondisi opname rusak berat.
+- Prioritas Penggantian: sisa masa manfaat habis + biaya maintenance tinggi + sering rusak.
+
+Status Opname:
+- Terverifikasi: status_opname_terakhir = Terverifikasi.
+- Belum Dicek: tanggal_opname_terakhir kosong.
+- Selisih: status_lokasi_opname_terakhir = Tidak Sesuai / Berbeda.
+- Tidak Ditemukan: status_opname_terakhir = Hilang / Tidak Ditemukan.
+- Perlu Verifikasi: data konflik atau lokasi tidak jelas.
+
+Status Maintenance:
+- Scheduled: jadwal maintenance masih nanti.
+- Due Soon: jadwal maintenance dalam 30 hari.
+- Overdue: jadwal maintenance sudah lewat.
+- Dalam Proses: tiket perbaikan aktif.
+- Selesai: tiket sudah selesai.
+
+Status Mutasi:
+- Draft
+- Menunggu Persetujuan
+- Disetujui
+- Ditolak
+- Selesai
+
+Status Pengadaan:
+- Draft
+- Menunggu Persetujuan
+- Disetujui
+- Dalam Pengadaan
+- Selesai
+- Ditolak
+
+Status Data Quality:
+- Lengkap
+- Perlu Verifikasi
+- Tidak Lengkap
+- Konflik Data
+
+Warna badge harus mengikuti status:
+- Hijau soft: baik, aktif, selesai, terverifikasi.
+- Kuning soft: menunggu, due soon, perlu verifikasi.
+- Biru soft: dalam proses, scheduled.
+- Merah soft: rusak berat, overdue, ditolak, tidak ditemukan.
+- Abu soft: draft, belum dicek, tidak lengkap.
+
+==================================================
+G. INTEGRASI ANTAR MENU
+==================================================
+
+Buat semua halaman saling terhubung.
+
+1. Data Aset
+- Menjadi master/profil aset.
+- Table utama membaca assets.
+- Klik row asset → set selectedAssetId → buka detail drawer asset.
+- Detail drawer asset membaca data dari getAssetById(selectedAssetId).
+- Jangan membuat data detail baru yang tidak berasal dari asset.
+
+2. Dashboard Executive
+- Semua KPI membaca computed metrics dari assetStore.
+- Total aset dari assets.length.
+- Total nilai buku dari sum nilai_buku.
+- Progress opname dari computeStockOpnameProgress().
+- Top unit dari grouping nama_unit.
+- Top maintenance dari total_biaya_maintenance.
+- Aset prioritas dari computeReplacementPriority().
+- Klik KPI/row aset → buka Data Aset detail / navigasi ke asset detail.
+
+3. Dashboard Analitik
+- Pola Kerusakan membaca maintenance fields.
+- Prediksi Perbaikan membaca maintenance + kondisi + sisa masa manfaat.
+- Pengelolaan Aset membaca unit + lokasi + PIC + opname + maintenance.
+- Persebaran Aset membaca lokasi/ruangan.
+- Perencanaan Pengadaan membaca replacement priority + room utilization + idle asset.
+- Rekapitulasi membaca semua data dengan filter.
+
+4. Dashboard Keuangan
+- Semua nilai berasal dari legacy financial fields.
+- Tidak boleh ada input baru.
+- Klik aset bernilai tinggi → buka detail Data Aset tab Keuangan.
+
+5. Dashboard Kondisi
+- Status kondisi dihitung dari computeConditionScore(asset).
+- Aset prioritas penggantian dihitung dari computeReplacementPriority(asset).
+- Klik row → buka detail Data Aset.
+
+6. Dashboard Monitoring
+- Pertumbuhan aset dari tanggal_perolehan / tanggal_pengadaan.
+- Distribusi aset dari nama_unit, nama_gedung, kode_ruangan.
+- Komposisi dari jenis_aset, kode_barang, kategori_aset.
+- Aset per ruangan dari kode_ruangan.
+- Klik ruangan → buka Lokasi & Ruangan dengan ruangan terpilih.
+
+7. Dashboard Utilisasi
+- Idle asset rate dari status_penggunaan_aset.
+- Rasio kapasitas dari jumlah aset per ruangan / kapasitas_orang_ruangan.
+- Ruangan kekurangan aset dari computeRoomsLackingAssets().
+- Klik ruangan → buka Lokasi & Ruangan.
+- Klik aset idle → buka Data Aset detail.
+
+8. Dashboard Pengadaan
+- Statistik pengadaan dari tanggal_pengadaan dan procurementRequests.
+- Kebutuhan aset dari computeProcurementNeed().
+- Penggantian aset dari computeReplacementPriority().
+- Klik rekomendasi pengadaan → buka Pengadaan dengan prefilled reason.
+- Klik aset pengganti → buka Data Aset detail.
+
+9. Dashboard Maintenance
+- Jadwal maintenance dari jadwal_maintenance_berikutnya.
+- Overdue dari computeMaintenanceOverdue().
+- Frekuensi kerusakan dari total_frekuensi_maintenance.
+- Biaya dari total_biaya_maintenance.
+- Klik aset → buka detail aset / detail tiket perbaikan.
+
+10. Lokasi & Ruangan
+- Tree gedung/lantai/ruangan dibangun dari nama_gedung, lantai_level, kode_ruangan.
+- Klik ruangan → tampilkan assets dengan kode_ruangan tersebut.
+- Jumlah aset ruangan dihitung dari getAssetsByRoom(kode_ruangan).
+- Nilai aset ruangan dihitung dari sum nilai_buku aset di ruangan.
+- Jika latitude/longitude kosong, tampilkan heatmap ruangan/gedung, bukan map palsu.
+
+11. Penanggung Jawab
+- Daftar PIC dibangun dari nama_pic dan unit_pic.
+- Jumlah aset per PIC dihitung dari getAssetsByPIC(nama_pic).
+- Aset tanpa PIC dihitung dari nama_pic kosong.
+- Klik PIC → tampilkan daftar aset PIC.
+- Klik aset → buka detail Data Aset.
+
+12. Stock Opname
+- Lembar kerja membaca assets.
+- Barcode scanning memakai kode_tag_aset.
+- Saat scan kode_tag_aset, sistem mencari asset via getAssetByTag().
+- Hasil scan mengisi status_opname_terakhir, kondisi_fisik_opname_terakhir, status_lokasi_opname_terakhir, diverifikasi_oleh_terakhir, tanggal_opname_terakhir.
+- Progress opname otomatis berubah setelah status update.
+- Dashboard Executive dan Stock Opname KPI ikut berubah.
+
+13. Perbaikan / Maintenance
+- Tiket perbaikan dibuat dari asset_id.
+- Saat tiket selesai, update:
+  - tanggal_maintenance_terakhir
+  - jenis_maintenance_terakhir
+  - kategori_kerusakan_terakhir
+  - tingkat_kerusakan_terakhir
+  - biaya_maintenance_terakhir
+  - total_frekuensi_maintenance
+  - total_biaya_maintenance
+  - downtime_terakhir_jam
+  - rata_rata_waktu_perbaikan_jam
+  - jadwal_maintenance_berikutnya
+- Dashboard Maintenance, Dashboard Kondisi, dan Dashboard Analitik otomatis berubah.
+
+14. Mutasi Aset
+- Mutasi dibuat dari asset_id.
+- Saat mutasi disetujui/selesai, update:
+  - nama_gedung
+  - lantai_level
+  - kode_ruangan
+  - nama_ruangan_standar
+  - nama_pic
+  - unit_pic
+  - tanggal_mutasi_terakhir
+  - status_mutasi_terakhir
+  - catatan_mutasi_terakhir
+- Lokasi & Ruangan, Penanggung Jawab, Dashboard Monitoring, dan Data Aset otomatis berubah.
+
+15. Pengadaan
+- Pengadaan bisa dibuat manual atau dari rekomendasi sistem.
+- Jika pengadaan selesai dan aset baru diterima, tambahkan record baru ke assets.
+- Dashboard Monitoring, Keuangan, Pengadaan, dan Executive otomatis berubah.
+
+16. Dokumen
+- Dokumen harus punya relasi asset_id atau transaction_id.
+- Detail aset tab Dokumen membaca dokumen yang punya asset_id sama.
+- Dokumen pengadaan/perbaikan/mutasi/opname tampil di menu Dokumen.
+- Klik dokumen → bisa kembali ke aset/transaksi terkait.
+
+17. Aktivitas
+- Semua perubahan data mencatat activityLogs.
+- Setiap create/update/delete/approve/import/export harus membuat log.
+- Audit Trail membaca activityLogs, bukan data statis.
+- Data Aset detail hanya menampilkan audit ringkas; menu Aktivitas menampilkan audit lengkap.
+
+18. Pengguna
+- Role dan akses memengaruhi button/action yang muncul.
+- Admin dapat semua.
+- Operator aset bisa tambah/edit data aset.
+- Teknisi bisa mengelola perbaikan.
+- Pengelola pengadaan bisa mengelola pengadaan.
+- Pimpinan hanya melihat dashboard dan laporan.
+- Auditor bisa melihat audit trail.
+
+==================================================
+H. FILTER HARUS GLOBAL DAN REACTIVE
+==================================================
+
+Semua filter harus memengaruhi KPI, chart, dan table dalam halaman.
+
+Filter umum:
+- Tahun
+- Unit
+- Kampus
+- Gedung
+- Lantai
+- Ruangan
+- Kategori Aset
+- Jenis Aset
+- Kondisi
+- Status Opname
+- Status Maintenance
+- PIC
+
+Contoh:
+Jika user pilih Unit “Sekolah Vokasi”:
+- KPI total aset berubah.
+- Chart berubah.
+- Table berubah.
+- Insight berubah.
+
+Jika user pilih tahun 2026:
+- Pengadaan tahun 2026 berubah.
+- Aset baru tahun berjalan berubah.
+- Nilai pengadaan berubah.
+
+Jika user pilih ruangan tertentu:
+- Aset per ruangan berubah.
+- Nilai aset ruangan berubah.
+- Utilisasi ruangan berubah.
+
+Jangan ada filter yang hanya visual tetapi tidak memengaruhi data.
+
+==================================================
+I. SEARCH HARUS MENCARI DI DATA ASLI
+==================================================
+
+Search global harus bisa mencari:
+- kode aset
+- kode_tag_aset
+- nama aset
+- kode barang
+- unit
+- PIC
+- ruangan
+- gedung
+- dokumen
+- tiket perbaikan
+- mutasi
+- pengadaan
+
+Search result harus bisa menavigasi ke:
+- detail aset
+- transaksi perbaikan
+- mutasi
+- pengadaan
+- dokumen
+- ruangan
+- PIC
+
+==================================================
+J. CLICK / NAVIGATION BEHAVIOR
+==================================================
+
+Implementasikan interaksi:
+
+1. Klik row di Data Aset:
+- set selectedAssetId
+- buka detail drawer.
+
+2. Klik asset di Dashboard:
+- buka detail asset drawer atau navigasi ke Data Aset dengan selectedAssetId.
+
+3. Klik KPI “Aset Tanpa Lokasi Jelas”:
+- buka filtered table Data Aset dengan status_kejelasan_lokasi = tidak jelas / perlu verifikasi.
+
+4. Klik KPI “Maintenance Overdue”:
+- buka Dashboard Maintenance tab Jadwal Perbaikan dengan filter Overdue.
+
+5. Klik KPI “Aset Tanpa PIC”:
+- buka Penanggung Jawab tab PIC Belum Lengkap.
+
+6. Klik ruangan di heatmap:
+- buka Lokasi & Ruangan dengan ruangan terpilih.
+
+7. Klik asset dari Stock Opname:
+- buka detail aset.
+
+8. Klik “Buat Tiket Perbaikan” dari detail aset:
+- buka form Perbaikan dengan asset_id terisi otomatis.
+
+9. Klik “Ajukan Mutasi” dari detail aset:
+- buka form Mutasi dengan asset_id, lokasi sekarang, dan PIC sekarang terisi otomatis.
+
+10. Klik rekomendasi pengadaan:
+- buka form Pengadaan dengan alasan kebutuhan terisi dari rekomendasi sistem.
+
+==================================================
+K. DATA QUALITY ENGINE
+==================================================
+
+Tambahkan indikator kualitas data yang dihitung dari data.
+
+Rule:
+Data aset “Lengkap” jika:
+- kode aset ada
+- nama aset ada
+- unit ada
+- nilai buku ada
+- tanggal perolehan ada
+- lokasi jelas
+- PIC ada
+- kondisi ada
+
+“Perlu Verifikasi” jika:
+- lokasi tidak jelas
+- PIC kosong
+- status opname kosong
+- kondisi legacy konflik dengan kondisi opname
+- jadwal maintenance overdue
+- nilai buku kosong
+- tanggal perolehan kosong
+
+“Konflik Data” jika:
+- status opname = hilang tetapi status penggunaan = digunakan
+- kondisi fisik = rusak berat tetapi status kondisi sistem = baik
+- lokasi opname tidak sesuai tetapi status kejelasan lokasi = jelas
+- total biaya maintenance lebih kecil dari biaya maintenance terakhir
+- latitude ada tetapi longitude kosong
+
+Tampilkan Data Quality indicator di:
+- Data Aset
+- Detail Aset
+- Dashboard Executive
+- Dashboard Analitik
+- Aktivitas
+- Overview
+
+==================================================
+L. INSIGHT SISTEM HARUS DINAMIS
+==================================================
+
+Jangan gunakan insight statis.
+
+Insight harus berasal dari data:
+- aset tanpa lokasi jelas
+- aset tanpa PIC
+- aset overdue maintenance
+- aset sering rusak
+- ruangan kekurangan aset
+- aset idle
+- unit belum stock opname
+- aset prioritas penggantian
+- data konflik
+
+Contoh insight dinamis:
+- “12 aset belum memiliki lokasi jelas.”
+- “5 aset melewati masa manfaat dan memiliki biaya maintenance tinggi.”
+- “3 unit belum menyelesaikan stock opname.”
+- “7 aset idle berpotensi direlokasi sebelum pengadaan baru.”
+- “Confidence prediksi sedang karena histori maintenance belum lengkap.”
+
+Jika data tidak cukup:
+- tampilkan “Data belum cukup”
+- “Menunggu histori sistem”
+- “Perlu verifikasi”
+- “Confidence rendah”
+
+==================================================
+M. DASHBOARD HARUS MEMBACA DATA, BUKAN MOCK STATIS
+==================================================
+
+Untuk setiap Dashboard:
+
+Dashboard Executive:
+- Total Aset = assets.length
+- Total Nilai Buku = sum nilai_buku
+- Progress Opname = computeStockOpnameProgress()
+- Maintenance Overdue = computeMaintenanceOverdue()
+- Aset Tanpa Lokasi = computeAssetsWithoutClearLocation()
+- Top Unit = group assets by nama_unit
+- Top Maintenance = group by unit/aset total_biaya_maintenance
+
+Dashboard Analitik:
+- Pola Kerusakan = group by kategori_kerusakan_terakhir
+- Prediksi Perbaikan = computeConditionScore + computeMaintenanceRisk
+- Pengelolaan Aset = group by unit
+- Persebaran Aset = group by gedung/lantai/ruangan
+- Perencanaan Pengadaan = computeProcurementNeed
+- Rekapitulasi = group by filter
+
+Dashboard Keuangan:
+- Valuasi = nilai_buku dan harga_perolehan
+- Penyusutan = penyusutan dan akumulasi
+- Aset Bernilai Tinggi = sort nilai_buku desc
+- Biaya per Unit = group nilai aset by unit
+
+Dashboard Kondisi:
+- Kualitas Aset = computeConditionScore
+- Kelayakan = condition + useful life
+- Umur Ekonomis = sisa_masa_manfaat
+- Prioritas Penggantian = computeReplacementPriority
+
+Dashboard Monitoring:
+- Pertumbuhan = tanggal_perolehan / tanggal_pengadaan
+- Distribusi = unit/gedung/ruangan
+- Komposisi = jenis_aset/kode_barang
+- Aset per Ruangan = kode_ruangan
+
+Dashboard Utilisasi:
+- Idle Asset = status_penggunaan_aset
+- Pemenuhan Kapasitas = jumlah aset per ruangan / kapasitas
+- Ruangan Kekurangan = computeRoomsLackingAssets
+
+Dashboard Pengadaan:
+- Statistik = procurementRequests + tanggal_pengadaan
+- Kebutuhan = computeProcurementNeed
+- Penggantian = computeReplacementPriority
+
+Dashboard Maintenance:
+- Ringkasan = maintenanceTickets + maintenance fields
+- Jadwal = jadwal_maintenance_berikutnya
+- Overdue = jadwal < today
+- Biaya = total_biaya_maintenance
+
+==================================================
+N. JANGAN MEMBUAT DATA PALSU YANG TIDAK TERHUBUNG
+==================================================
+
+Boleh menggunakan seed data / sample data, tetapi harus berada dalam centralized data store.
+
+Jangan membuat angka statis di komponen.
+Jangan membuat chart dengan array lokal yang tidak terhubung.
+Jangan membuat table statis per halaman.
+Jangan membuat status warna manual tanpa rule.
+Jangan membuat detail asset yang berbeda dari row asset.
+
+Jika butuh sample data, buat sample data di satu file/section:
+- assets
+- maintenanceTickets
+- mutationRequests
+- stockOpnameRecords
+- procurementRequests
+- documents
+- activityLogs
+- users
+- rooms
+
+Lalu semua halaman harus membaca dari sample data tersebut.
+
+==================================================
+O. AKTIVITAS / AUDIT TRAIL
+==================================================
+
+Setiap aksi harus membuat log:
+- import data
+- export data
+- tambah aset
+- edit aset
+- hapus aset
+- scan opname
+- update status opname
+- buat tiket perbaikan
+- selesaikan perbaikan
+- ajukan mutasi
+- approve mutasi
+- buat pengadaan
+- approve pengadaan
+- upload dokumen
+- ubah role user
+
+Log berisi:
+- log_id
+- waktu
+- user
+- role
+- menu
+- aksi
+- target_type
+- target_id
+- field_changed
+- old_value
+- new_value
+- status
+- ip/device optional
+
+Menu Aktivitas harus membaca activityLogs ini.
+
+==================================================
+P. OUTPUT YANG SAYA INGINKAN DARI KAMU
+==================================================
+
+Berikan hasil perbaikan berupa:
+1. Data architecture / centralized store.
+2. Data model untuk assets, rooms, users, stockOpnameRecords, maintenanceTickets, mutationRequests, procurementRequests, documents, activityLogs.
+3. Helper function / selector untuk computed KPI.
+4. Integrasi navigation dan selectedAssetId.
+5. Penyesuaian seluruh halaman agar membaca data yang sama.
+6. Perbaikan filter agar reactive.
+7. Perbaikan badge agar berbasis rule.
+8. Perbaikan dashboard agar KPI dan chart dihitung dari data.
+9. Perbaikan detail drawer agar membaca selectedAssetId.
+10. Perbaikan audit trail agar semua aksi tercatat.
+11. Jangan mengubah desain visual utama.
+
+==================================================
+Q. ACCEPTANCE CRITERIA
+==================================================
+
+Pekerjaan dianggap berhasil jika:
+
+1. Angka KPI berubah saat data assets berubah.
+2. Chart berubah saat filter berubah.
+3. Table berubah saat filter berubah.
+4. Klik row Data Aset membuka detail aset yang benar.
+5. Klik aset dari dashboard membuka aset yang sama.
+6. Klik ruangan membuka aset dalam ruangan tersebut.
+7. Scan kode_tag_aset menemukan aset yang benar.
+8. Update stock opname mengubah progress opname.
+9. Update maintenance mengubah dashboard maintenance dan kondisi aset.
+10. Update mutasi mengubah lokasi, PIC, dan heatmap.
+11. Update pengadaan selesai menambah aset baru.
+12. Aktivitas mencatat perubahan.
+13. Tidak ada KPI hardcoded.
+14. Tidak ada chart hardcoded.
+15. Tidak ada table statis yang tidak terhubung.
+16. Semua status badge berasal dari rule.
+17. Semua rekomendasi berasal dari data.
+18. Jika data belum tersedia, sistem menampilkan “Data belum tersedia” atau “Perlu verifikasi”, bukan mengarang.
+19. Desain visual tetap sama.
+20. Sistem terasa saling terintegrasi dan data-driven.
+
+==================================================
+R. CATATAN FINAL
+==================================================
+
+Fokus utama bukan menambah tampilan baru, tetapi menghubungkan semua data yang sudah ada.
+
+Data Aset adalah pusat.
+Dashboard adalah hasil olahan.
+Stock Opname memperbarui validasi fisik.
+Maintenance memperbarui kondisi dan biaya.
+Mutasi memperbarui lokasi dan PIC.
+Pengadaan menambah aset baru atau memenuhi kebutuhan.
+Lokasi & Ruangan membaca lokasi aset.
+PIC membaca penanggung jawab aset.
+Dokumen membaca dokumen terkait aset/transaksi.
+Aktivitas mencatat semua perubahan.
+Pengguna mengontrol hak akses.
+
+Jangan membuat desain statis lagi.
+Jadikan seluruh sistem connected, reactive, dan integrated.
