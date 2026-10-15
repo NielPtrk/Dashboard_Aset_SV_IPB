@@ -1,8 +1,7 @@
 version: "3.9"
 
 # ─── Coolify Stack Configuration ─────────────────────────────────────────────
-# Desain khusus untuk Coolify (tanpa root Nginx container karena Coolify
-# sudah memiliki Traefik/Caddy proxy bawaan dengan SSL Let's Encrypt otomatis).
+# Stack lengkap: Frontend Vite Nginx, Backend NestJS, PostgreSQL, MinIO.
 
 services:
   frontend:
@@ -13,6 +12,8 @@ services:
         VITE_API_URL: ${VITE_API_URL}
         VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     restart: unless-stopped
+    ports:
+      - "3000:80"
     depends_on:
       - backend
 
@@ -21,6 +22,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "3001:3001"
     environment:
       PORT: 3001
       DB_HOST: postgres
@@ -71,6 +74,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
     volumes:
       - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
