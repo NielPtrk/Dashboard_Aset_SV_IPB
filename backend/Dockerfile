@@ -21,6 +21,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/storage/data_Excel ./src/storage/data_Excel
 
 EXPOSE 3001
 CMD ["node", "dist/main"]
