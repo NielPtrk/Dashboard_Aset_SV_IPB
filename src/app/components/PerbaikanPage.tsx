@@ -230,7 +230,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full z-50 w-[560px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed top-0 right-0 h-full z-50 w-full max-w-[560px] bg-white shadow-2xl flex flex-col">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between shrink-0">
@@ -265,7 +265,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
           </div>
 
           {/* Kategori & Tingkat kerusakan */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1.5">Kategori Kerusakan</p>
               <p className="text-xs font-semibold text-gray-800">{record.kategoriKerusakan}</p>
@@ -277,7 +277,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
           </div>
 
           {/* Lokasi + Penanganan */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 space-y-1.5">
               <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Lokasi Aset</p>
               <div className="flex items-center gap-1.5"><Building size={12} className="text-gray-400 shrink-0" /><span className="text-xs text-gray-700">{record.gedung}</span></div>
@@ -293,7 +293,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
           </div>
 
           {/* Biaya */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Estimasi Biaya</p>
               <p className="text-sm font-bold text-gray-800">{record.biayaEstimasi !== null ? `Rp ${fmt(record.biayaEstimasi)}` : "—"}</p>
@@ -307,7 +307,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
           </div>
 
           {/* Downtime + Jadwal berikutnya */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
               <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Downtime</p>
               <div className="flex items-center gap-1.5">
@@ -327,7 +327,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
           {/* Riwayat Maintenance Summary */}
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Riwayat Maintenance</p>
-            <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 grid grid-cols-2 gap-x-4 gap-y-2">
+            <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
               <div>
                 <p className="text-[10px] text-gray-400">Maintenance Terakhir</p>
                 <p className="text-xs font-semibold text-gray-800">{record.tglMaintenanceTerakhir ?? "—"}</p>
@@ -695,7 +695,7 @@ function NewPerbaikanModal({ onClose, onSubmit }: {
               {/* Tingkat Kerusakan */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-2">Tingkat Kerusakan</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(["Ringan", "Sedang", "Berat", "Kritis"] as TingkatKerusakan[]).map(t => (
                     <button key={t} onClick={() => setTingkatKerusakan(t)}
                       className={`py-2 text-xs font-semibold rounded-lg border transition-all ${tingkatKerusakan === t ? TINGKAT_COLORS[t].active : TINGKAT_COLORS[t].idle}`}>
@@ -708,7 +708,7 @@ function NewPerbaikanModal({ onClose, onSubmit }: {
               {/* Prioritas */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-2">Tingkat Prioritas</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(["Rendah", "Sedang", "Tinggi", "Kritis"] as PerbaikanPrioritas[]).map(p => (
                     <button key={p} onClick={() => setPrioritas(p)}
                       className={`py-2 text-xs font-semibold rounded-lg border transition-all ${prioritas === p ? PRIORITAS_COLORS[p].active : PRIORITAS_COLORS[p].idle}`}>
@@ -1014,7 +1014,7 @@ export function PerbaikanPage({ topBar }: { topBar: React.ReactNode }) {
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
 
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 min-w-0">
         {/* Title + CTA */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1028,37 +1028,37 @@ export function PerbaikanPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* KPI Row 1 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {STAT_CARDS.map(s => (
-            <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 shadow-sm">
+            <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 shadow-sm min-w-0">
               <div className={`w-10 h-10 rounded-lg ${s.bg} flex items-center justify-center shrink-0`}>{s.icon}</div>
-              <div>
-                <p className="text-xl font-bold text-gray-900">{s.value}</p>
-                <p className="text-xs text-gray-500 leading-tight">{s.label}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xl font-bold text-gray-900 truncate">{s.value}</p>
+                <p className="text-xs text-gray-500 leading-tight truncate">{s.label}</p>
               </div>
             </div>
           ))}
         </div>
 
         {/* KPI Row 2 (tambahan) */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {STAT_CARDS2.map(s => (
-            <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 shadow-sm">
+            <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 shadow-sm min-w-0">
               <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center shrink-0`}>{s.icon}</div>
-              <div>
+              <div className="min-w-0 flex-1">
                 {"isText" in s
-                  ? <p className="text-base font-bold text-gray-900">{s.value}</p>
-                  : <p className="text-xl font-bold text-gray-900">{s.value}</p>
+                  ? <p className="text-base font-bold text-gray-900 truncate" title={s.value}>{s.value}</p>
+                  : <p className="text-xl font-bold text-gray-900 truncate">{s.value}</p>
                 }
-                <p className="text-xs text-gray-500 leading-tight">{s.label}</p>
-                <p className="text-[10px] text-gray-400">{s.sub}</p>
+                <p className="text-xs text-gray-500 leading-tight truncate">{s.label}</p>
+                <p className="text-[10px] text-gray-400 truncate">{s.sub}</p>
               </div>
             </div>
           ))}
         </div>
 
         {/* Kategori breakdown */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {CAT_CARDS.map(c => (
             <button key={c.kat} onClick={() => setKatFilter(prev => prev === c.kat ? "" : c.kat)}
               className={`bg-white border rounded-xl p-4 flex items-center gap-3 shadow-sm transition-all text-left ${

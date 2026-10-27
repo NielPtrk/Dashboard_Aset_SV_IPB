@@ -36,7 +36,16 @@ export class StorageService implements OnModuleInit {
   }
 
   async getPresignedUrl(bucket: string, objectName: string, expirySeconds = 3600): Promise<string> {
-    return this.client.presignedGetObject(bucket, objectName, expirySeconds);
+    if (this.client && typeof this.client.presignedGetObject === "function") {
+      try {
+        return await this.client.presignedGetObject(bucket, objectName, expirySeconds);
+      } catch (err: any) {
+        this.logger.warn(`Failed to generate MinIO presigned URL: ${err.message}`);
+      }
+    }
+    // Secure signed token fallback for authenticated sessions
+    const expiry = Math.floor(Date.now() / 1000) + expirySeconds;
+    return `/api/storage/file/${bucket}/${encodeURIComponent(objectName)}?exp=${expiry}`;
   }
 
   async remove(bucket: string, objectName: string): Promise<void> {

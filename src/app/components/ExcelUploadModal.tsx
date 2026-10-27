@@ -185,8 +185,8 @@ export function ExcelUploadModal({ open, onClose, category, onImport, onClearCat
 
       // Log successful upload to Menu Aktivitas
       store.appendActivity({
-        pengguna: store.currentUser.nama,
-        role: store.currentUser.role,
+        pengguna: store.currentUser?.nama || "Pengguna",
+        role: store.currentUser?.role || "Staff",
         menu: "Data Aset",
         aksi: `Upload Excel ${inserted.toLocaleString("id-ID")} baris ke ${LABEL[category] || category} (${category})${file.name ? ` — File: ${file.name}` : ""}`,
         target_type: "Kategori",
@@ -211,8 +211,8 @@ export function ExcelUploadModal({ open, onClose, category, onImport, onClearCat
       }
 
       store.appendActivity({
-        pengguna: store.currentUser.nama,
-        role: store.currentUser.role,
+        pengguna: store.currentUser?.nama || "Pengguna",
+        role: store.currentUser?.role || "Staff",
         menu: "Data Aset",
         aksi: `Gagal upload Excel ke ${LABEL[category] || category} (${category}) — ${displayMsg}`,
         target_type: "Kategori",

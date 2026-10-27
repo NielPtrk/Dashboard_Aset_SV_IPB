@@ -72,12 +72,26 @@ export const authService = {
 
   async logout(): Promise<void> {
     try {
-      await apiClient.post("/auth/logout");
+      await apiClient.post("/auth/logout").catch(() => {});
     } finally {
       localStorage.setItem("user_logged_out", "true");
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("current_user");
+      localStorage.removeItem("user_profile");
+      try {
+        sessionStorage.clear();
+      } catch {
+        // ignore
+      }
+      // Clear cookie if any
+      if (typeof document !== "undefined") {
+        document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        document.cookie = "sidebar_state=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+      }
     }
   },
 

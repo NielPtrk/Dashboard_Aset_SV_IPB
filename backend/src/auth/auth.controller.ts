@@ -52,6 +52,15 @@ export class AuthController {
     return this.authService.refresh(token);
   }
 
+  @Public()
+  @Get("turnstile-config")
+  @ApiOperation({ summary: "Konfigurasi publik Cloudflare Turnstile" })
+  getTurnstileConfig() {
+    return {
+      siteKey: process.env.TURNSTILE_SITE_KEY || "1x00000000000000000000AA",
+    };
+  }
+
   @ApiBearerAuth()
   @Get("profile")
   @ApiOperation({ summary: "Ambil data profil pengguna yang sedang login" })

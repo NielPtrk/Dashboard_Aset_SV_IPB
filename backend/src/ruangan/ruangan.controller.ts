@@ -14,7 +14,7 @@ import { Ruangan } from "./ruangan.entity";
 
 import { Roles } from "../auth/decorators/roles.decorator";
 
-@Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname")
+@Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname", "Pimpinan")
 @Controller("ruangan")
 export class RuanganController {
   constructor(private readonly ruanganService: RuanganService) {}

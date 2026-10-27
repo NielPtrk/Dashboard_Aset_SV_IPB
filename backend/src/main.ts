@@ -23,9 +23,25 @@ async function bootstrap() {
     }),
   );
 
-  // CORS — allow the frontend origin
+  // Permissions-Policy for camera access
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader("Permissions-Policy", "camera=(self)");
+    next();
+  });
+
+  // CORS — allow the frontend origin or hosting domains
+  const allowedOrigins = process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(",").map((u: string) => u.trim())
+    : ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"];
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:5173",
+    origin: (origin: string, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   });

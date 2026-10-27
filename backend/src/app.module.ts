@@ -54,7 +54,7 @@ import { RolesGuard } from "./auth/guards/roles.guard";
     UsersModule,
     RuanganModule,
     ObservasiModule,
-    // StorageModule,
+    StorageModule,
     NotificationsModule,
     GatewayModule,
     AiModule,

@@ -195,13 +195,28 @@ function Sidebar({
 }) {
   const [dashboardOpen, setDashboardOpen] = useState(true);
   const [dataAsetOpen, setDataAsetOpen] = useState(true);
-  const [lokasiOpen, setLokasiOpen] = useState(false);
+  const isLokasiSection = page === "lokasi" || page.startsWith("kampus-");
+  const [lokasiOpen, setLokasiOpen] = useState(true);
+
+  // Automatically keep Lokasi & Ruangan open whenever browsing inside it
+  useEffect(() => {
+    if (isLokasiSection) {
+      setLokasiOpen(true);
+    }
+  }, [isLokasiSection]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const { currentUser } = useDataStore();
+  const { currentUser, mutationRequests } = useDataStore();
 
   const role = currentUser?.role || "Admin Sistem";
   const isPekerja = role === "Pekerja Stock Opname";
+  const isAdminPusat = role === "Admin Pusat";
+  const isAdminSistem = role === "Admin Sistem";
+  const canSeeMutasiBadge = isAdminPusat || isAdminSistem;
+  const pendingMutasiCount = canSeeMutasiBadge
+    ? (mutationRequests || []).filter(m => m.status === "Menunggu Persetujuan" || m.status === "Menunggu" || m.status === "Draft").length
+    : 0;
 
   return (
     <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
@@ -247,13 +262,16 @@ function Sidebar({
               { id: "dash-monitoring", label: "Pertumbuhan Aset" },
               { id: "dash-pengadaan",  label: "Pengadaan"   },
               { id: "dash-maintenance",label: "Maintenance" },
-            ].map(({ id, label }) => (
-              <div key={id} onClick={() => setPage(id)}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${page === id ? "bg-gray-100" : "hover:bg-gray-50"}`}>
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${page === id ? "bg-gray-600" : "border border-gray-400"}`} />
-                <span className={`text-xs ${page === id ? "text-gray-800 font-medium" : "text-gray-500"}`}>{label}</span>
-              </div>
-            ))}
+            ].map(({ id, label }) => {
+              const isActive = page === id || (page === "dashboard" && id === "dash-analitik");
+              return (
+                <div key={id} onClick={() => setPage(id)}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${isActive ? "bg-gray-100" : "hover:bg-gray-50"}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-gray-600" : "border border-gray-400"}`} />
+                  <span className={`text-xs ${isActive ? "text-gray-800 font-medium" : "text-gray-500"}`}>{label}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -292,15 +310,27 @@ function Sidebar({
       {/* Lokasi & Ruangan — expandable */}
       <div>
         <div
-          onClick={() => { setLokasiOpen((v) => !v); setPage("kampus-cilibende"); }}
+          onClick={() => {
+            setLokasiOpen(true);
+            if (!page.startsWith("kampus-")) {
+              setPage("kampus-cilibende");
+            }
+          }}
           className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer transition-colors ${page === "lokasi" || ["kampus-cilibende", "kampus-gunung-gede", "kampus-pajajaran", "kampus-baranangsiang", "kampus-lainnya", "kampus-belum-dikategorikan"].includes(page) ? "bg-gray-100" : "hover:bg-gray-50"}`}
         >
           <MapPin size={15} className="text-gray-700 shrink-0" />
           <span className="text-sm font-semibold text-gray-800 flex-1">Lokasi & Ruangan</span>
-          {lokasiOpen
-            ? <ChevronDown size={13} className="text-gray-400 shrink-0" />
-            : <ChevronRight size={13} className="text-gray-400 shrink-0" />
-          }
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLokasiOpen((v) => !v);
+            }}
+            className="p-0.5 rounded hover:bg-gray-200/50 text-gray-400 shrink-0 cursor-pointer"
+            title={lokasiOpen ? "Tutup Submenu" : "Buka Submenu"}
+          >
+            {lokasiOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
         </div>
         {lokasiOpen && (
           <div className="ml-6 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-gray-200 pl-3">
@@ -331,9 +361,13 @@ function Sidebar({
 
       {/* TRANSAKSI */}
       <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Transaksi</p>
-      {!isPekerja && (
-        <NavItem icon={ArrowLeftRight} label="Mutasi Aset" active={page === "mutasi"} onClick={() => setPage("mutasi")} />
-      )}
+      <NavItem
+        icon={ArrowLeftRight}
+        label="Mutasi Aset"
+        active={page === "mutasi"}
+        onClick={() => setPage("mutasi")}
+        badge={pendingMutasiCount > 0 ? String(pendingMutasiCount) : undefined}
+      />
       {!isPekerja && (
         <NavItem icon={Wrench} label="Perbaikan" active={page === "maintenance"} onClick={() => setPage("maintenance")} />
       )}
@@ -454,7 +488,7 @@ function ShareModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose} />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] bg-white rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100vw-32px)] max-w-[420px] bg-white rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Share2 size={18} className="text-gray-700" />
@@ -541,7 +575,7 @@ function AIPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/20 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-screen w-[400px] bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="fixed top-0 right-0 h-screen w-full sm:w-[400px] max-w-full bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <div className="flex items-center gap-2">
@@ -637,27 +671,47 @@ function AIPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-// ���─ Top Bar (shared) ──────────────────────────────────────────────────────────
+// ── Top Bar (shared) ──────────────────────────────────────────────────────────
 function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[] }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [notifViewAll, setNotifViewAll] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const { notifications, markAllRead, markRead, unreadCount } = useApp();
 
   return (
     <>
-      <div className="sticky top-0 z-10 bg-[#FFFFFF] border-b border-[#ECECEC] flex items-center px-8 h-[72px]">
+      <div className="sticky top-0 z-10 bg-[#FFFFFF] border-b border-[#ECECEC] flex items-center justify-between px-3 sm:px-6 md:px-8 h-14 sm:h-[72px] gap-2 relative min-w-0">
+        {/* Mobile Search Overlay */}
+        {mobileSearchOpen && (
+          <div className="absolute inset-0 z-20 bg-white px-3 sm:px-6 flex items-center gap-2 animate-in fade-in duration-150">
+            <Search size={18} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
+            <input
+              autoFocus
+              className="text-sm sm:text-[15px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
+              placeholder="Cari aset, menu, fitur..."
+            />
+            <button
+              onClick={() => setMobileSearchOpen(false)}
+              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors shrink-0 cursor-pointer"
+              title="Tutup Pencarian"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        )}
+
         {/* LEFT: page breadcrumb */}
-        <div className="flex items-center shrink-0 gap-2.5" style={{ minWidth: "250px" }}>
-          <img src={svIpbLogo} alt="IPB Logo" className="w-7 h-7 object-contain" />
+        <div className="flex items-center min-w-0 gap-1.5 sm:gap-2.5 max-w-[60%] sm:max-w-none shrink overflow-hidden">
+          <img src={svIpbLogo} alt="IPB Logo" className="w-6 h-6 sm:w-7 sm:h-7 object-contain shrink-0" />
           
           {breadcrumbs ? (
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1 sm:gap-2 min-w-0 overflow-hidden">
               {(Array.isArray(breadcrumbs) ? breadcrumbs : [breadcrumbs]).map((crumb, idx) => (
                 <React.Fragment key={idx}>
-                  <ChevronRight size={16} strokeWidth={2} className="text-[#8A8A8A]" />
-                  <h1 className={`text-[15px] tracking-tight ${idx === breadcrumbs.length - 1 ? 'font-semibold text-[#171717]' : 'font-medium text-[#6F737A]'}`}>
+                  <ChevronRight size={14} strokeWidth={2} className="text-[#8A8A8A] shrink-0" />
+                  <h1 className={`text-xs sm:text-[15px] tracking-tight truncate ${idx === breadcrumbs.length - 1 ? 'font-semibold text-[#171717]' : 'font-medium text-[#6F737A] hidden sm:inline'}`}>
                     {crumb}
                   </h1>
                 </React.Fragment>
@@ -665,8 +719,8 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
             </div>
           ) : title && (
             <>
-              <ChevronRight size={16} strokeWidth={2} className="text-[#8A8A8A]" />
-              <h1 className="text-[16px] font-semibold text-[#171717] tracking-tight">{title}</h1>
+              <ChevronRight size={14} strokeWidth={2} className="text-[#8A8A8A] shrink-0" />
+              <h1 className="text-xs sm:text-[16px] font-semibold text-[#171717] tracking-tight truncate">{title}</h1>
             </>
           )}
         </div>
@@ -675,43 +729,54 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
         <div className="flex-1" />
 
         {/* RIGHT: action buttons */}
-        <div className="flex items-center justify-end gap-[10px] shrink-0 relative pr-4">
-          <div className="flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-64">
+        <div className="flex items-center justify-end gap-1.5 sm:gap-[10px] shrink-0 relative">
+          {/* Desktop Search */}
+          <div className="hidden sm:flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-36 md:w-56 lg:w-64 transition-all focus-within:w-44 md:focus-within:w-64">
             <Search size={16} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
-            <input className="text-[15px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
+            <input className="text-xs sm:text-[14px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
               placeholder="Search..." />
-            <div className="flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[32px] h-[22px] shrink-0">
-              <span className="text-[12px] font-medium text-[#777777]">⌘K</span>
+            <div className="hidden md:flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[28px] h-[20px] shrink-0">
+              <span className="text-[11px] font-medium text-[#777777]">⌘K</span>
             </div>
           </div>
+
+          {/* Mobile Search Trigger Button */}
+          <button
+            onClick={() => setMobileSearchOpen(true)}
+            className="sm:hidden w-[34px] h-[34px] rounded-[8px] border border-[#E5E5E5] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
+            title="Cari"
+          >
+            <Search size={15} strokeWidth={1.7} className="text-[#6F737A]" />
+          </button>
+
           <button
             onClick={() => setShowAI(true)}
-            className="flex items-center gap-1.5 h-[38px] pl-3 pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100"
+            className="flex items-center gap-1 sm:gap-1.5 h-[34px] sm:h-[38px] px-2 sm:px-3 sm:pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100 shrink-0 cursor-pointer"
             title="Tanya AI"
           >
-            <img src={asistenAiLogo} alt="AI Logo" className="w-7 h-7 object-contain" />
-            <span className="text-[14px] font-medium text-[#6B7280]">Tanya AI</span>
+            <img src={asistenAiLogo} alt="AI Logo" className="w-5 h-5 sm:w-7 sm:h-7 object-contain shrink-0" />
+            <span className="text-xs sm:text-[14px] font-medium text-[#6B7280] hidden md:inline">Tanya AI</span>
           </button>
           <button
             onClick={() => setShowNotifications(!showNotifications)}
-            className="w-[38px] h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors relative"
+            className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors relative shrink-0 cursor-pointer"
             title="Notifikasi"
           >
-            <Bell size={18} strokeWidth={1.7} className="text-[#6B7280]" />
-            {unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1">{unreadCount}</span>}
+            <Bell size={16} strokeWidth={1.7} className="text-[#6B7280]" />
+            {unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5">{unreadCount}</span>}
           </button>
           <button
             onClick={() => setShowShare(true)}
-            className="w-[38px] h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors"
+            className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
             title="Bagikan"
           >
-            <Share2 size={18} strokeWidth={1.7} className="text-[#6B7280]" />
+            <Share2 size={16} strokeWidth={1.7} className="text-[#6B7280]" />
           </button>
 
           {showNotifications && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => { setShowNotifications(false); setNotifViewAll(false); }} />
-              <div className="absolute top-full right-0 mt-2 w-[340px] bg-white border border-gray-200 shadow-lg rounded-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full right-0 mt-2 w-[300px] sm:w-[340px] max-w-[calc(100vw-24px)] bg-white border border-gray-200 shadow-lg rounded-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-gray-900">Notifikasi</span>
@@ -732,7 +797,13 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
                   {(notifViewAll ? notifications : notifications.slice(0, 3)).map((n) => (
                     <div
                       key={n.id}
-                      onClick={() => markRead(n.id)}
+                      onClick={() => {
+                        markRead(n.id);
+                        if (n.actionPage) {
+                          window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: n.actionPage } }));
+                          setShowNotifications(false);
+                        }
+                      }}
                       className={`p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors ${n.unread ? "bg-purple-50/30" : ""}`}
                     >
                       <div className="flex items-start gap-3">
@@ -1304,6 +1375,7 @@ function SettingsPage({ breadcrumbs }: { breadcrumbs: string[] }) {
 
 
 const DASH_SUBPAGES: Record<string, { title: string; tabs: string[] }> = {
+  "dashboard":       { title: "Analitik",   tabs: ["Pola Kerusakan Aset", "Prediksi Perbaikan Aset", "Pengelolaan Aset", "Persebaran Aset", "Perencanaan Pengadaan Aset", "Rekapitulasi"] },
   "dash-analitik":   { title: "Analitik",   tabs: ["Pola Kerusakan Aset", "Prediksi Perbaikan Aset", "Pengelolaan Aset", "Persebaran Aset", "Perencanaan Pengadaan Aset", "Rekapitulasi"] },
   "dash-keuangan":   { title: "Keuangan",   tabs: ["Valuasi Aset", "Biaya Aset per Ruangan/Gedung"] },
   "dash-kondisi":    { title: "Kondisi",    tabs: ["Kualitas Aset", "Kelayakan Aset", "Umur Ekonomis", "Prioritas Penggantian"] },
@@ -1396,7 +1468,7 @@ function MainContent({ page }: { page: string }) {
     return (
       <main className="flex-1 overflow-hidden bg-gray-50 min-w-0 flex flex-col">
         <TopBar breadcrumbs={currentBreadcrumbs} />
-        <div className="px-8 py-6 flex-1 overflow-hidden">
+        <div className="px-3 sm:px-6 md:px-8 py-3 sm:py-6 flex-1 overflow-hidden min-w-0">
           <AsetDataTable key={page} title={PAGE_TITLES[page]} pageId={page} />
         </div>
       </main>
@@ -1437,7 +1509,17 @@ function MainContent({ page }: { page: string }) {
 
   if (DASH_SUBPAGES[page]) {
     const { title, tabs } = DASH_SUBPAGES[page];
-    return <DashSubPageFull page={page} title={title} tabs={tabs} topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} />;
+    const targetPage = page === "dashboard" ? "dash-analitik" : page;
+    const isLokasiSub = targetPage === "lokasi" || targetPage.startsWith("kampus-");
+    return (
+      <DashSubPageFull
+        key={isLokasiSub ? "dash-lokasi-section" : targetPage}
+        page={targetPage}
+        title={title}
+        tabs={tabs}
+        topBar={<TopBar breadcrumbs={currentBreadcrumbs} />}
+      />
+    );
   }
 
   if (PAGE_TITLES[page]) {
@@ -1669,7 +1751,7 @@ function MainContent({ page }: { page: string }) {
           <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-sm">
             <h2 className="text-lg font-bold text-[#022B5F] mb-5 border-b border-gray-100 pb-3">Kirim Pesan Langsung (Tiket)</h2>
             <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="block text-xs font-semibold text-[#022B5F] mb-2">Nama Lengkap</label>
                   <input type="text" value={userProfile?.nama || "Pengguna"} readOnly className="w-full text-sm border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 text-gray-500 outline-none cursor-not-allowed" />
@@ -1701,7 +1783,10 @@ function MainContent({ page }: { page: string }) {
     );
   }
 
-  if (page === "dashboard") return <DashSubPageFull page="dash-analitik" title="Analitik Sistem" tabs={["Prediksi", "Siklus Hidup", "Pengadaan"]} topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} />;
+  if (page === "dashboard") {
+    const { title, tabs } = DASH_SUBPAGES["dash-analitik"];
+    return <DashSubPageFull page="dash-analitik" title={title} tabs={tabs} topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} />;
+  }
 }
 
 // ── Toast Container ───────────────────────────────────────────────────────────
@@ -1776,7 +1861,7 @@ class ErrorBoundary extends React.Component<
 
 // ── App ───────────────────────────────────────────────────────────────────────
 function AppContent() {
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState("dash-analitik");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<AuthMode>("login");
@@ -1799,6 +1884,17 @@ function AppContent() {
     };
     window.addEventListener("auth:unauthorized", handleUnauthorized);
     return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+  }, []);
+
+  // Listen for global navigation events (e.g. from notification clicks)
+  useEffect(() => {
+    const handleNavigate = (e: any) => {
+      if (e.detail?.page) {
+        setPage(e.detail.page);
+      }
+    };
+    window.addEventListener("app:navigate", handleNavigate);
+    return () => window.removeEventListener("app:navigate", handleNavigate);
   }, []);
 
   // Ensure session token is initialized on startup if not explicitly logged out

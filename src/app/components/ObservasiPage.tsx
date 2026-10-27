@@ -51,6 +51,13 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
   const store = useDataStore();
   const currentYear = new Date().getFullYear();
 
+  // Role permissions
+  const userRole = store.currentUser?.role;
+  const isPekerjaSO = userRole === "Pekerja Stock Opname";
+  const isPimpinan = userRole === "Pimpinan";
+  const canDelete = !isPekerjaSO && !isPimpinan;
+  const canEdit = !isPimpinan;
+
   // State: filters & selection
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedKampus, setSelectedKampus] = useState<string>("Semua");
@@ -157,7 +164,14 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
 
   // Upload Excel modal states
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
-  const [importMode, setImportMode] = useState<"replace" | "append">("replace");
+  const [importMode, setImportMode] = useState<"replace" | "append">(isPekerjaSO ? "append" : "replace");
+
+  useEffect(() => {
+    if (isPekerjaSO) {
+      setImportMode("append");
+    }
+  }, [isPekerjaSO]);
+
   const [parsedPreviewRows, setParsedPreviewRows] = useState<ObservasiTableRow[]>([]);
   const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -547,7 +561,7 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
     const importedCount = parsedPreviewRows.length;
     let finalRows: ObservasiTableRow[] = [];
 
-    if (importMode === "replace") {
+    if (!isPekerjaSO && importMode === "replace") {
       finalRows = parsedPreviewRows.map((r, i) => ({ ...r, noUrut: i + 1 }));
     } else {
       const startIdx = rows.length;
@@ -589,7 +603,7 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
         kodeRuangan: selectedRoom.kodeRuangan || "",
         namaRuangan: selectedRoom.namaRuangan,
         unitKerja: "Sekolah Vokasi (SV)",
-        petugas: store.currentUser.nama,
+        petugas: store.currentUser?.nama || "Staff",
         items: payloadItems,
         isUpload: true,
       });
@@ -711,7 +725,7 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
         kodeRuangan: selectedRoom.kodeRuangan || "",
         namaRuangan: selectedRoom.namaRuangan,
         unitKerja: "Sekolah Vokasi (SV)",
-        petugas: store.currentUser.nama,
+        petugas: store.currentUser?.nama || "Staff",
         items: payloadItems,
       });
 
@@ -817,7 +831,7 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
     <main className="flex-1 overflow-y-auto bg-slate-50 min-w-0 font-sans">
       {topBar}
 
-      <div className="px-6 py-6 max-w-7xl mx-auto space-y-6">
+      <div className="px-3 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto space-y-6 min-w-0">
         {/* Header Title & Breadcrumb Card */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <div>
@@ -912,7 +926,7 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
         )}
 
         {/* Top KPI Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Ruangan Master</span>
             <div className="mt-2 flex items-baseline gap-2">
@@ -1087,17 +1101,6 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
                         Download Template
                       </button>
 
-                      {/* Upload Excel Modal Trigger */}
-                      <button
-                        type="button"
-                        onClick={() => setIsUploadModalOpen(true)}
-                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 shadow-sm transition-colors"
-                        title="Upload file Excel untuk mengisi tabel observasi secara massal"
-                      >
-                        <Upload size={14} className="text-blue-600" />
-                        Upload Excel
-                      </button>
-
                       {/* Export Excel */}
                       <button
                         type="button"
@@ -1110,34 +1113,56 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
                         Export Excel
                       </button>
 
-                      {/* Tambah Barang Manual */}
-                      <button
-                        type="button"
-                        onClick={handleAddRow}
-                        className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-[#014285] hover:bg-[#022B5F] rounded-xl shadow-sm transition-all"
-                      >
-                        <Plus size={15} />
-                        Tambah Barang
-                      </button>
+                      {/* Read-only badge for Pimpinan */}
+                      {!canEdit && (
+                        <span className="px-3 py-2 text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-xl">
+                          Hanya Lihat (Pimpinan)
+                        </span>
+                      )}
 
-                      {/* Simpan Data */}
-                      <button
-                        type="button"
-                        onClick={handleSave}
-                        disabled={saveLoading}
-                        className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition-all ${
-                          isSaved
-                            ? "bg-emerald-600 hover:bg-emerald-700"
-                            : "bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300"
-                        }`}
-                      >
-                        {saveLoading ? (
-                          <RefreshCw size={14} className="animate-spin" />
-                        ) : (
-                          <Save size={14} />
-                        )}
-                        {isSaved ? "Simpan Perubahan" : "Simpan (Ada Perubahan)"}
-                      </button>
+                      {canEdit && (
+                        <>
+                          {/* Upload Excel Modal Trigger */}
+                          <button
+                            type="button"
+                            onClick={() => setIsUploadModalOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 shadow-sm transition-colors"
+                            title="Upload file Excel untuk mengisi tabel observasi secara massal"
+                          >
+                            <Upload size={14} className="text-blue-600" />
+                            Upload Excel
+                          </button>
+
+                          {/* Tambah Barang Manual */}
+                          <button
+                            type="button"
+                            onClick={handleAddRow}
+                            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-[#014285] hover:bg-[#022B5F] rounded-xl shadow-sm transition-all"
+                          >
+                            <Plus size={15} />
+                            Tambah Barang
+                          </button>
+
+                          {/* Simpan Data */}
+                          <button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={saveLoading}
+                            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition-all ${
+                              isSaved
+                                ? "bg-emerald-600 hover:bg-emerald-700"
+                                : "bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300"
+                            }`}
+                          >
+                            {saveLoading ? (
+                              <RefreshCw size={14} className="animate-spin" />
+                            ) : (
+                              <Save size={14} />
+                            )}
+                            {isSaved ? "Simpan Perubahan" : "Simpan (Ada Perubahan)"}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -1398,24 +1423,30 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
 
                             {/* Actions */}
                             <td className="py-2.5 px-2 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDuplicateRow(idx)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                  title="Duplikasi baris"
-                                >
-                                  <Copy size={13} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteRow(idx)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                  title="Hapus baris"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
+                              {canEdit ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDuplicateRow(idx)}
+                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                    title="Duplikasi baris"
+                                  >
+                                    <Copy size={13} />
+                                  </button>
+                                  {canDelete && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteRow(idx)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                      title="Hapus baris"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-medium">—</span>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -1428,13 +1459,15 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
                 {rows.length > 0 && (
                   <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                     <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={handleAddRow}
-                        className="flex items-center gap-1.5 px-3 py-1.5 font-bold text-[#014285] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                      >
-                        <Plus size={14} /> Tambah Baris Baru
-                      </button>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={handleAddRow}
+                          className="flex items-center gap-1.5 px-3 py-1.5 font-bold text-[#014285] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                        >
+                          <Plus size={14} /> Tambah Baris Baru
+                        </button>
+                      )}
                       <span className="text-slate-500 font-medium">
                         Total: <strong>{rows.length}</strong> jenis barang ({totalVolume} total unit)
                       </span>
@@ -1447,14 +1480,16 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
                           Rp {totalNilai.toLocaleString("id-ID")}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleSave}
-                        disabled={saveLoading}
-                        className="px-4 py-2 bg-[#014285] hover:bg-[#022B5F] text-white font-bold rounded-xl shadow-sm transition-all"
-                      >
-                        Simpan Observasi Ruangan
-                      </button>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={handleSave}
+                          disabled={saveLoading}
+                          className="px-4 py-2 bg-[#014285] hover:bg-[#022B5F] text-white font-bold rounded-xl shadow-sm transition-all"
+                        >
+                          Simpan Observasi Ruangan
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1697,9 +1732,27 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
 
                       {/* Import Mode Radio */}
                       <div className="flex items-center gap-2">
+                        {!isPekerjaSO && (
+                          <label
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                              importMode === "replace"
+                                ? "bg-white text-[#014285] border border-blue-200 shadow-xs"
+                                : "text-slate-600 hover:bg-slate-200/60"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="importMode"
+                              checked={importMode === "replace"}
+                              onChange={() => setImportMode("replace")}
+                              className="text-[#014285]"
+                            />
+                            Timpa data lama (Ganti Semua)
+                          </label>
+                        )}
                         <label
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                            importMode === "replace"
+                            importMode === "append" || isPekerjaSO
                               ? "bg-white text-[#014285] border border-blue-200 shadow-xs"
                               : "text-slate-600 hover:bg-slate-200/60"
                           }`}
@@ -1707,27 +1760,12 @@ export function ObservasiPage({ topBar }: { topBar?: React.ReactNode }) {
                           <input
                             type="radio"
                             name="importMode"
-                            checked={importMode === "replace"}
-                            onChange={() => setImportMode("replace")}
-                            className="text-[#014285]"
-                          />
-                          Ganti Semua Baris
-                        </label>
-                        <label
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                            importMode === "append"
-                              ? "bg-white text-[#014285] border border-blue-200 shadow-xs"
-                              : "text-slate-600 hover:bg-slate-200/60"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="importMode"
-                            checked={importMode === "append"}
+                            checked={importMode === "append" || isPekerjaSO}
                             onChange={() => setImportMode("append")}
                             className="text-[#014285]"
+                            disabled={isPekerjaSO}
                           />
-                          Tambahkan ke Baris Saat Ini
+                          Tambahkan ke data yang ada
                         </label>
                       </div>
                     </div>

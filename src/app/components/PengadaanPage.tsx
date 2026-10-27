@@ -158,7 +158,7 @@ export function PengadaanPage({ topBar }: { topBar: React.ReactNode }) {
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 min-w-0">
         {/* Title */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -174,7 +174,7 @@ export function PengadaanPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* 4 KPI summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 shadow-sm">
             <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
               <ShoppingCart size={18} className="text-gray-700" />
@@ -217,7 +217,7 @@ export function PengadaanPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* Category cards breakdown */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {CAT_CARDS.map(c => {
             const pct = stats.totalUnits > 0 ? ((c.count / stats.totalUnits) * 100).toFixed(1) : "0.0";
             const isSelected = katFilter === c.kat;

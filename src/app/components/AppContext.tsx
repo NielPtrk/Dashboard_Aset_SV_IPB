@@ -21,10 +21,12 @@ export interface AppNotification {
   message: string;
   time: string;
   unread: boolean;
+  actionPage?: string;
+  actionType?: string;
 }
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  { id: 1, title: "Persetujuan Mutasi Aset", message: "Mutasi aset untuk Laptop Asus ROG membutuhkan persetujuan Anda.", time: "5 mnt yang lalu", unread: true },
+  { id: 1, title: "Persetujuan Mutasi Aset", message: "Mutasi aset untuk Laptop Asus ROG membutuhkan persetujuan Anda.", time: "5 mnt yang lalu", unread: true, actionPage: "mutasi" },
   { id: 2, title: "Jadwal Perbaikan", message: "Perbaikan AC Ruang Server dijadwalkan besok pagi pukul 08.00.", time: "1 jam yang lalu", unread: true },
   { id: 3, title: "Laporan Stock Opname", message: "Stock opname bulan ini telah selesai 80%. Segera tuntaskan sisa verifikasi.", time: "3 jam yang lalu", unread: false },
   { id: 4, title: "Aset Baru Ditambahkan", message: "Printer Canon PIXMA IX6870 telah berhasil didaftarkan ke dalam sistem.", time: "Hari ini, 09:15", unread: true },
@@ -49,26 +51,17 @@ interface AppContextType {
   language: AppLanguage;
   setLanguage: (v: AppLanguage) => void;
   notifications: AppNotification[];
+  addNotification: (notif: { title: string; message: string; actionPage?: string; actionType?: string }) => void;
   markAllRead: () => void;
   markRead: (id: number) => void;
   unreadCount: number;
   toasts: ToastData[];
   showToast: (msg: string, type?: "success" | "info" | "error") => void;
-  userProfile: UserProfile;
-  setUserProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
+  userProfile: UserProfile | null;
+  setUserProfile: React.Dispatch<React.SetStateAction<UserProfile | null>>;
   updateUserProfile: (payload: UpdateProfilePayload) => Promise<boolean>;
   isProfileLoading: boolean;
 }
-
-const DEFAULT_USER_PROFILE: UserProfile = {
-  id: "U-001",
-  nama: "Othniel Patrick Limbong",
-  email: "othniel.patrick@apps.ipb.ac.id",
-  no_telp: "+62 812 3456 7890",
-  jabatan: "Administrator",
-  lokasi: "Rektorat IPB, Lt. 3",
-  avatar_url: null,
-};
 
 export const AppContext = React.createContext<AppContextType>({
   theme: "light",
@@ -78,12 +71,13 @@ export const AppContext = React.createContext<AppContextType>({
   language: "id",
   setLanguage: () => {},
   notifications: INITIAL_NOTIFICATIONS,
+  addNotification: () => {},
   markAllRead: () => {},
   markRead: () => {},
   unreadCount: 3,
   toasts: [],
   showToast: () => {},
-  userProfile: DEFAULT_USER_PROFILE,
+  userProfile: null,
   setUserProfile: () => {},
   updateUserProfile: async () => false,
   isProfileLoading: false,
@@ -155,30 +149,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // ── User Profile State ─────────────────────────────────────────────────────
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    // Try to restore from localStorage first
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    // Only restore from localStorage if a valid token exists
     if (typeof localStorage !== "undefined") {
-      const saved = localStorage.getItem("user_profile");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && parsed.nama && parsed.nama !== "Salgado Ginting") {
-            return parsed;
-          }
-        } catch { /* fallback */ }
+      const hasToken = !!localStorage.getItem("access_token");
+      const isLoggedOut = localStorage.getItem("user_logged_out") === "true";
+      if (hasToken && !isLoggedOut) {
+        const saved = localStorage.getItem("user_profile");
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed && parsed.nama) {
+              return parsed;
+            }
+          } catch { /* fallback */ }
+        }
       }
     }
-    return DEFAULT_USER_PROFILE;
+    return null;
   });
   const [isProfileLoading, setIsProfileLoading] = useState(false);
 
-  // Persist profile changes to localStorage
+  // Sync profile reset on logout or session expiry
   useEffect(() => {
-    localStorage.setItem("user_profile", JSON.stringify(userProfile));
+    const handleLogout = () => {
+      setUserProfile(null);
+    };
+    window.addEventListener("auth:logout", handleLogout);
+    window.addEventListener("auth:session_expired", handleLogout);
+    return () => {
+      window.removeEventListener("auth:logout", handleLogout);
+      window.removeEventListener("auth:session_expired", handleLogout);
+    };
+  }, []);
+
+  // Persist profile changes to localStorage only if authenticated
+  useEffect(() => {
+    if (userProfile && localStorage.getItem("access_token")) {
+      localStorage.setItem("user_profile", JSON.stringify(userProfile));
+    } else {
+      localStorage.removeItem("user_profile");
+    }
   }, [userProfile]);
 
   // Update profile: update local state & localStorage, and attempt backend sync
   const updateUserProfile = useCallback(async (payload: UpdateProfilePayload): Promise<boolean> => {
+    if (!userProfile) return false;
     setIsProfileLoading(true);
     try {
       const updatedProfile: UserProfile = {
@@ -198,10 +214,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           const apiResult = await authService.updateProfile(userProfile.id, payload);
           if (apiResult?.avatar_url) {
-            setUserProfile((prev) => ({ ...prev, avatar_url: apiResult.avatar_url }));
+            setUserProfile((prev) => prev ? ({ ...prev, avatar_url: apiResult.avatar_url }) : null);
           }
         } catch (apiErr) {
-          // Log warning for dev/telemetry, but do not block UI since local save succeeded
           console.warn("Backend profile sync skipped:", apiErr);
         }
       }
@@ -224,6 +239,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLanguage = useCallback((v: AppLanguage) => {
     setLanguageState(v);
+  }, []);
+
+  const addNotification = useCallback((notif: { title: string; message: string; actionPage?: string; actionType?: string }) => {
+    setNotifications((prev) => [
+      {
+        id: Date.now(),
+        title: notif.title,
+        message: notif.message,
+        time: "Baru saja",
+        unread: true,
+        actionPage: notif.actionPage,
+        actionType: notif.actionType,
+      },
+      ...prev,
+    ]);
   }, []);
 
   const markAllRead = useCallback(() => {
@@ -291,6 +321,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         language,
         setLanguage,
         notifications,
+        addNotification,
         markAllRead,
         markRead,
         unreadCount,

@@ -75,6 +75,67 @@ export class AssetsService {
     return { data, total, page, limit };
   }
 
+  async getOverviewSummary() {
+    const rawTotal = await this.repo
+      .createQueryBuilder("a")
+      .select("COUNT(*)", "count")
+      .addSelect("SUM(COALESCE(a.harga_perolehan, 0))", "total_val")
+      .getRawOne();
+
+    const totalAssets = parseInt(rawTotal?.count ?? "0", 10);
+    const totalAcquisitionValue = parseFloat(rawTotal?.total_val ?? "0");
+
+    const roomAggregates = await this.repo
+      .createQueryBuilder("a")
+      .select("a.id_ruangan", "id_ruangan")
+      .addSelect("a.nama_ruangan", "nama_ruangan")
+      .addSelect("a.gedung", "gedung")
+      .addSelect("COUNT(*)", "asset_count")
+      .addSelect("SUM(COALESCE(a.harga_perolehan, 0))", "total_value")
+      .groupBy("a.id_ruangan")
+      .addGroupBy("a.nama_ruangan")
+      .addGroupBy("a.gedung")
+      .getRawMany();
+
+    return {
+      totalAssets,
+      totalAcquisitionValue,
+      roomAggregates,
+    };
+  }
+
+  async getRoomAssets(params: {
+    roomId?: string;
+    namaRuangan?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { roomId, namaRuangan, search, page = 1, limit = 10 } = params;
+    const qb = this.repo.createQueryBuilder("a");
+
+    if (roomId) {
+      qb.andWhere("(a.id_ruangan = :roomId OR a.extra_fields->>'Id_ruangan' = :roomId)", { roomId });
+    } else if (namaRuangan) {
+      qb.andWhere("LOWER(a.nama_ruangan) = LOWER(:namaRuangan)", { namaRuangan });
+    }
+
+    if (search) {
+      qb.andWhere(
+        "(LOWER(a.nama_barang) LIKE LOWER(:search) OR LOWER(a.kode_tag_aset) LIKE LOWER(:search))",
+        { search: `%${search}%` }
+      );
+    }
+
+    qb.orderBy("a.row_order", "ASC")
+      .addOrderBy("a.created_at", "ASC")
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total, page, limit };
+  }
+
   async findOne(id: string): Promise<Asset> {
     const asset = await this.repo.findOne({ where: { id } });
     if (!asset) throw new NotFoundException(`Aset dengan id ${id} tidak ditemukan.`);

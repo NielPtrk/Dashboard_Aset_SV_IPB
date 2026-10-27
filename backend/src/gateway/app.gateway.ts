@@ -8,6 +8,7 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { Logger } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 
 // ─── Socket.IO events emitted to connected clients ───────────────────────────
 export type ServerToClientEvent =
@@ -31,8 +32,30 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(AppGateway.name);
 
-  handleConnection(@ConnectedSocket() client: Socket) {
-    this.logger.log(`Client connected: ${client.id}`);
+  constructor(private readonly jwtService: JwtService) {}
+
+  async handleConnection(@ConnectedSocket() client: Socket) {
+    try {
+      const rawToken =
+        client.handshake.auth?.token ||
+        (typeof client.handshake.headers?.authorization === "string" &&
+        client.handshake.headers.authorization.startsWith("Bearer ")
+          ? client.handshake.headers.authorization.slice(7)
+          : null);
+
+      if (!rawToken) {
+        this.logger.warn(`Rejecting socket connection ${client.id}: Missing authentication token.`);
+        client.disconnect(true);
+        return;
+      }
+
+      const decoded = await this.jwtService.verifyAsync(rawToken);
+      (client as any).user = decoded;
+      this.logger.log(`Client authenticated and connected: ${client.id} (user: ${decoded.email || decoded.sub})`);
+    } catch (err: any) {
+      this.logger.warn(`Rejecting socket connection ${client.id}: Invalid token (${err.message}).`);
+      client.disconnect(true);
+    }
   }
 
   handleDisconnect(@ConnectedSocket() client: Socket) {

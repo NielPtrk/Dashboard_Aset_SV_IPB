@@ -318,7 +318,7 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-screen w-[580px] bg-white shadow-2xl z-50 flex flex-col">
+      <div className="fixed top-0 right-0 h-screen w-full sm:w-[580px] max-w-full bg-white shadow-2xl z-50 flex flex-col">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between shrink-0">
@@ -366,21 +366,21 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
             />
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label={ctx.kodeBarangLabel} field="KodeBarang" req placeholder={ctx.kodeBarangPH} />
             <Inp label="ID_ASET / NUP" field="Id_aset" placeholder="Contoh: 94907" note="Nomor Urut Pendaftaran dari sistem BMN" />
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Kode Akun" field="KodeAkun" placeholder="Contoh: 532111" />
             <Inp label="Kode RKAT" field="KodeRKAT" placeholder="Contoh: R1, R5, RKAT-2024" note="Kode Rencana Kerja Anggaran Tahunan" />
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Tahun Buku" field="TahunBuku" placeholder="Contoh: 2024" />
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label={ctx.docLabel} field="Dokumen" placeholder={ctx.docPH} />
             <Inp label={ctx.refLabel} field="Referensi" placeholder={ctx.refPH} />
           </div>
@@ -408,7 +408,7 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Keuangan & Pengadaan" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Tgl. Pengadaan / Pembelian" field="Tgl_pengadaan" type="date" />
             <Inp label="Tgl. Perolehan (Resmi)" field="TglPerolehan" type="date" req />
           </div>
@@ -421,7 +421,7 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
               note="Masukkan angka saja. Penyusutan akan dihitung otomatis."
             />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Sumber Dana" field="SumberDana"
               options={["BOPTN","Mandiri","Hibah","APBN","APBD","Pinjaman","Dana Masyarakat"]} />
             <Sel label="Masa Manfaat (Tahun)" field="Masa_manfaat"
@@ -437,24 +437,24 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
             <>
               <SectionHead num={S()} label="Data Kendaraan" sub="Informasi spesifik kendaraan — STNK, BPKB, dan nomor kendaraan" />
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Inp label="No. Polisi" field="NoPolisi" placeholder="Contoh: F 1234 BC" />
                 <Sel label="Jenis Angkutan" field="JenisAngkutan"
                   options={["Minibus","Sedan","MPV","SUV","Truk","Bus","Pickup","Sepeda Motor","Roda Tiga","Sepeda Listrik","Ambulan","Lainnya"]} />
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Inp label="Model Kendaraan" field="Model" placeholder="Contoh: Toyota Avanza E 1.3 MT" />
                 <Sel label="BMI / BMN" field="Bmi_bmn" options={["BMN","Mandiri","Hibah","-"]} />
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Inp label="No. Rangka" field="NoRangka" placeholder="Contoh: MHKM5EA3JJK123456" />
                 <Inp label="No. Mesin" field="NoMesin" placeholder="Contoh: 3SZE1234567" />
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Inp label="No. BPKB" field="NoBpkb" placeholder="Contoh: BK12345678" />
                 <Inp label="Tgl. Pembuatan Kendaraan" field="TglPembuatan" type="date" />
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Inp label="Tgl. Berlaku STNK" field="TglStnk" type="date" />
                 <Sel label="Status Pajak" field="Pajak" options={["Dibayar","Belum Dibayar","Dibebaskan","-"]} />
               </div>
@@ -472,7 +472,7 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           <div className="mt-3">
             <Inp label={ctx.penggunaLabel} field="Pengguna" placeholder={ctx.penggunaPH} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Kondisi Fisik" field="Kondisi"
               options={["Baik","Rusak Ringan","Rusak Berat","Hilang"]} req />
             <Sel label="Status Aset" field="Trx_status"
@@ -489,11 +489,11 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Tag Aset & Penanggung Jawab (PIC)" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Kode Tag Aset" field="kode_tag_aset" placeholder="Contoh: TAG-SV-0001" note="Kode barcode / QR label fisik aset" />
             <Inp label="Nama PIC" field="nama_pic" placeholder={ctx.penggunaPH} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Unit PIC" field="unit_pic" placeholder="Contoh: Sekolah Vokasi" />
             <Inp label="Kontak PIC" field="kontak_pic" placeholder="Contoh: 08521234567" />
           </div>
@@ -505,28 +505,28 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Detail Lokasi & Denah" sub="Informasi gedung, ruangan, dan koordinat geografis" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Nama Gedung" field="nama_gedung" placeholder="Contoh: Gedung A, Lab Terpadu" />
             <Inp label="Lantai / Level" field="lantai_level" placeholder="Contoh: Lantai 2, Basement" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Kode Ruangan" field="kode_ruangan" placeholder="Contoh: KR-0001, A-201" />
             <Inp label="Nama Ruangan Standar" field="nama_ruangan_standar" placeholder={ctx.lokasiPH} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Kategori Ruangan" field="kategori_ruangan"
               options={["Ruang Kelas","Lab Komputer","Lab Sains","Ruang Kerja","Ruang Rapat","Perpustakaan","Gudang","Server Room","Pantry","Area Parkir","Pool Kendaraan","Lainnya"]} />
             <Inp label="Luas Ruangan (m²)" field="luas_ruangan_m2" placeholder="Contoh: 60" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Kapasitas Orang" field="kapasitas_orang_ruangan" placeholder="Contoh: 30" />
             <Inp label="Referensi Denah" field="referensi_denah" placeholder="Contoh: DENAH/GedA/L2" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Latitude" field="latitude" placeholder="Contoh: -6.5597" />
             <Inp label="Longitude" field="longitude" placeholder="Contoh: 106.8040" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Status Kejelasan Lokasi" field="status_kejelasan_lokasi" options={["Jelas","Tidak Jelas"]} />
             <Sel label="Status Penggunaan Aset" field="status_penggunaan_aset" options={["Digunakan","Tidak Digunakan","Dipinjam","Hilang"]} />
           </div>
@@ -538,11 +538,11 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Stock Opname Terakhir" sub="Data hasil opname fisik aset terakhir yang dilakukan" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Tanggal Opname" field="tanggal_opname_terakhir" type="date" />
             <Sel label="Status Temuan" field="status_opname_terakhir" options={["Ditemukan","Tidak Ditemukan","Belum Dicek"]} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Kondisi Fisik (Saat Opname)" field="kondisi_fisik_opname_terakhir" options={["Baik","Rusak Ringan","Rusak Berat","Hilang"]} />
             <Sel label="Status Lokasi (Saat Opname)" field="status_lokasi_opname_terakhir" options={["Sesuai","Tidak Sesuai","Belum Dicek"]} />
           </div>
@@ -560,23 +560,23 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Maintenance / Perbaikan" sub="Riwayat dan jadwal perawatan / perbaikan aset" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Tgl. Maintenance Terakhir" field="tanggal_maintenance_terakhir" type="date" />
             <Sel label="Jenis Maintenance" field="jenis_maintenance_terakhir" options={["Preventif","Korektif","Penggantian Komponen","Kalibrasi","Overhaul","-"]} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Sel label="Kategori Kerusakan" field="kategori_kerusakan_terakhir" options={["Mekanis","Elektrikal","Struktural","Perangkat Lunak","Estetika","Lainnya","-"]} />
             <Sel label="Tingkat Kerusakan" field="tingkat_kerusakan_terakhir" options={["Ringan","Sedang","Berat","-"]} />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Biaya Maintenance Terakhir (Rp)" field="biaya_maintenance_terakhir" placeholder="Contoh: 500000" />
             <Inp label="Total Frekuensi Maintenance" field="total_frekuensi_maintenance" placeholder="Contoh: 3" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Total Biaya Maintenance (Rp)" field="total_biaya_maintenance" placeholder="Contoh: 1500000" />
             <Inp label="Downtime Terakhir (Jam)" field="downtime_terakhir_jam" placeholder="Contoh: 8" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Rata-rata Waktu Perbaikan (Jam)" field="rata_rata_waktu_perbaikan_jam" placeholder="Contoh: 4" />
             <Inp label="Jadwal Maintenance Berikutnya" field="jadwal_maintenance_berikutnya" type="date" />
           </div>
@@ -588,7 +588,7 @@ export function AsetModal({ open, onClose, initialData, onSave, mode, assetType,
           ═══════════════════════════════════════════════════════ */}
           <SectionHead num={S()} label="Mutasi Aset" sub="Riwayat perpindahan / mutasi aset terakhir" />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Inp label="Tanggal Mutasi Terakhir" field="tanggal_mutasi_terakhir" type="date" />
             <Sel label="Status Mutasi" field="status_mutasi_terakhir" options={["Selesai","Proses","-"]} />
           </div>

@@ -9,8 +9,10 @@ import {
   Check, MapPin, Camera, Building, Upload, Calendar,
   ArrowRightLeft, Users, Play, ArrowLeft, ArrowRight, Layers, Home, QrCode, FileText,
   ChevronDown, ChevronRight, HelpCircle, MapPinOff, Filter, Info, ChevronLeft,
-  ChevronsLeft, ChevronsRight, RefreshCw, Eye, Save, CheckSquare, Clock, RotateCcw, LogOut
+  ChevronsLeft, ChevronsRight, RefreshCw, Eye, Save, CheckSquare, Clock, RotateCcw, LogOut,
+  Trash2
 } from "lucide-react";
+import { AssetCameraModal } from "./AssetCameraModal";
 
 type SOTab = "Daftar Aset" | "Ruangan" | "Perpindahan" | "Laporan" | "Pengaturan";
 
@@ -28,6 +30,37 @@ export interface IncompleteClosedRoom {
 }
 
 const INCOMPLETE_ROOMS_STORAGE_KEY = "so_incomplete_closed_rooms_v1";
+const SO_DRAFTS_STORAGE_KEY = "sv_ipb_so_session_drafts_v1";
+
+function loadSessionDraftsFromStorage(): Record<string, {
+  kondisi: string;
+  catatan: string;
+  lokasiSesuai: boolean | null;
+  lokasiBaru?: string;
+  assignedRoomId?: string;
+  assignedRoomName?: string;
+  assignedGedung?: string;
+  assignedKodeRuangan?: string;
+  photo?: string;
+  saved?: boolean;
+}> {
+  if (typeof sessionStorage === "undefined") return {};
+  try {
+    const raw = sessionStorage.getItem(SO_DRAFTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionDraftsToStorage(drafts: Record<string, any>) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(SO_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  } catch {
+    // ignore
+  }
+}
 
 function loadIncompleteRoomsFromStorage(): Record<string, IncompleteClosedRoom> {
   if (typeof localStorage === "undefined") return {};
@@ -89,6 +122,10 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [activeTab, setActiveTab] = useState<SOTab>("Daftar Aset");
 
+  // Role check
+  const userRole = store.currentUser?.role || "Admin Sistem";
+  const isPekerjaSO = userRole === "Pekerja Stock Opname";
+
   // Sub-navigation tab layer: only appears when in an active SO session (workflowStep !== 'dashboard')
   const [activeSubTab, setActiveSubTab] = useState<"Stock Opname" | "Daftar Aset">("Stock Opname");
 
@@ -135,7 +172,7 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
   const [currentSessionIndex, setCurrentSessionIndex] = useState<number>(0);
   const [sessionScopeTitle, setSessionScopeTitle] = useState<string>("");
 
-  // Temporary session drafts before saving permanently
+  // Temporary session drafts before saving permanently (persisted in sessionStorage)
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, {
     kondisi: string;
     catatan: string;
@@ -147,7 +184,21 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
     assignedKodeRuangan?: string;
     photo?: string;
     saved?: boolean;
-  }>>({});
+  }>>(loadSessionDraftsFromStorage);
+
+  // Live Camera state for single asset & mass SO
+  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
+  const [isMassCameraOpen, setIsMassCameraOpen] = useState<boolean>(false);
+
+  // Sync session drafts to sessionStorage
+  useEffect(() => {
+    saveSessionDraftsToStorage(sessionDrafts);
+  }, [sessionDrafts]);
+
+  // Turn off camera when switching active asset, step, or subtab
+  useEffect(() => {
+    setIsCameraOpen(false);
+  }, [currentSessionIndex, sessionAssets, workflowStep, activeSubTab]);
 
   // Quick Action / Mass SO Modal State
   const [massVerifyRoom, setMassVerifyRoom] = useState<string | null>(null);
@@ -163,6 +214,9 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
   const [incompleteRooms, setIncompleteRooms] = useState<Record<string, IncompleteClosedRoom>>(loadIncompleteRoomsFromStorage);
   const [incompleteModalRoom, setIncompleteModalRoom] = useState<{ room: RuanganData | null; verified: number; total: number; unverified: number } | null>(null);
   const [incompleteCatatan, setIncompleteCatatan] = useState<string>("");
+
+  // Room search filter state for Lokasi Berbeda target room selector
+  const [targetRoomSearch, setTargetRoomSearch] = useState<string>("");
 
   // Lightweight Toast Notification State
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -783,8 +837,8 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
         }
       });
       store.appendActivity({
-        pengguna: store.currentUser.nama,
-        role: store.currentUser.role,
+        pengguna: store.currentUser?.nama || "Staff",
+        role: store.currentUser?.role || "Staff",
         menu: "Opname",
         aksi: `Upload Excel SO — ${rows.length} data validasi diimport ke sistem SO`,
         target_type: "SO",
@@ -909,23 +963,71 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
     const locStatus = draft.lokasiSesuai ? "Sesuai" : "Berbeda";
     const cat = draft.catatan || (k.includes("Rusak") ? "SO Kondisi Rusak" : "SO Lapangan");
 
-    store.recordStockOpname(asset.id, {
-      status_opname_terakhir: "Terverifikasi",
-      kondisi_fisik_opname_terakhir: k,
-      status_lokasi_opname_terakhir: locStatus,
-      catatan_opname_terakhir: cat,
-      Kondisi: k,
-      kondisi: k,
-      ...(hasNewRoom ? {
-        Id_ruangan: draft.assignedRoomId,
-        id_ruangan: draft.assignedRoomId,
-        Nama_ruangan: draft.assignedRoomName,
-        nama_ruangan_standar: draft.assignedRoomName,
-        Gedung: draft.assignedGedung,
-        nama_gedung: draft.assignedGedung,
-        kode_ruangan: draft.assignedKodeRuangan,
-      } : {}),
-    }, { skipLog: true });
+    // For PSO with a different location: create mutation request instead of moving asset
+    if (isPekerjaSO && hasNewRoom) {
+      // Check if there is already a pending mutation for this asset
+      const existingPending = (store.mutationRequests || []).find(
+        m => m.asset_id === asset.id && (m.status === "Menunggu Persetujuan" || m.status === "Draft") && m.sumber === "so"
+      );
+      if (!existingPending) {
+        const fromRoom = (
+          (asset as any).Nama_ruangan || (asset as any).nama_ruangan_standar ||
+          (asset as any).nama_ruangan || "Belum Ada Lokasi"
+        );
+        const fromGedung = (
+          (asset as any).nama_gedung || (asset as any).Gedung || (asset as any).gedung || ""
+        );
+        store.createMutation({
+          asset_id: asset.id,
+          kode_aset: asset.kode_tag_aset || asset.id,
+          nama_aset: asset.Nama_Barang || asset.nama_barang || asset.id,
+          nup: asset.nup || asset.NUP,
+          foto_bukti: draft.photo,
+          jenis: "Pindah Ruangan",
+          status: "Menunggu Persetujuan",
+          dari_ruangan: fromRoom,
+          dari_gedung: fromGedung,
+          dari_pic: asset.nama_pic || asset.Pengguna || asset.pengguna || "-",
+          dari_unit: asset.Nama_unit || asset.nama_unit || "-",
+          ke_ruangan: draft.assignedRoomName,
+          ke_gedung: draft.assignedGedung,
+          ke_pic: asset.nama_pic || asset.Pengguna || asset.pengguna || "-",
+          ke_unit: asset.Nama_unit || asset.nama_unit || "-",
+          catatan: cat,
+          sumber: "so",
+          pengaju: store.currentUser?.nama,
+        }, { user: store.currentUser?.nama });
+      }
+      // Record SO without moving location
+      store.recordStockOpname(asset.id, {
+        status_opname_terakhir: "Terverifikasi",
+        kondisi_fisik_opname_terakhir: k,
+        status_lokasi_opname_terakhir: "Berbeda",
+        catatan_opname_terakhir: cat,
+        Kondisi: k,
+        kondisi: k,
+        ...(draft.photo ? { foto: draft.photo, foto_fisik: draft.photo } : {}),
+      }, { skipLog: true });
+    } else {
+      store.recordStockOpname(asset.id, {
+        status_opname_terakhir: "Terverifikasi",
+        kondisi_fisik_opname_terakhir: k,
+        status_lokasi_opname_terakhir: locStatus,
+        catatan_opname_terakhir: cat,
+        Kondisi: k,
+        kondisi: k,
+        ...(draft.photo ? { foto: draft.photo, foto_fisik: draft.photo } : {}),
+        ...(hasNewRoom ? {
+          Id_ruangan: draft.assignedRoomId,
+          id_ruangan: draft.assignedRoomId,
+          Nama_ruangan: draft.assignedRoomName,
+          nama_ruangan_standar: draft.assignedRoomName,
+          Gedung: draft.assignedGedung,
+          nama_gedung: draft.assignedGedung,
+          kode_ruangan: draft.assignedKodeRuangan,
+        } : {}),
+      }, { skipLog: true });
+    }
 
     setSessionDrafts(prev => ({
       ...prev,
@@ -958,6 +1060,24 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
   // Revert/reset asset verification handler ("Hapus Jawaban")
   const handleResetAnswer = useCallback((asset: Asset) => {
     if (!asset) return;
+
+    // For PSO: check if there's a pending or approved SO mutation for this asset
+    if (isPekerjaSO) {
+      const pendingMutation = (store.mutationRequests || []).find(
+        m => m.asset_id === asset.id && (m.status === "Menunggu Persetujuan" || m.status === "Draft") && m.sumber === "so"
+      );
+      const approvedMutation = (store.mutationRequests || []).find(
+        m => m.asset_id === asset.id && (m.status === "Disetujui" || m.status === "Selesai") && m.sumber === "so"
+      );
+      if (approvedMutation) {
+        alert("Mutasi aset ini sudah diverifikasi oleh Admin Pusat. Jawaban tidak dapat dihapus.");
+        return;
+      }
+      if (pendingMutation) {
+        store.cancelMutation(pendingMutation.id, { user: store.currentUser?.nama });
+      }
+    }
+
     setSessionDrafts(prev => {
       const next = { ...prev };
       delete next[asset.id];
@@ -966,7 +1086,7 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
     store.revertStockOpname(asset.id);
     showToast("Jawaban aset berhasil dikosongkan");
-  }, [store, showToast]);
+  }, [store, showToast, isPekerjaSO]);
 
   // Handle incomplete room closure confirmation
   const handleConfirmIncompleteClosure = () => {
@@ -997,8 +1117,8 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
     // Append Activity Log for Menu Aktivitas
     store.appendActivity({
-      pengguna: store.currentUser.nama,
-      role: store.currentUser.role,
+      pengguna: store.currentUser?.nama || "Staff",
+      role: store.currentUser?.role || "Staff",
       menu: "Opname",
       aksi: `Penutupan ruangan SO tidak lengkap — ${roomName} (${gedung}, ${kampus}), ${verified} dari ${total} aset terverifikasi (${unverified} belum ditemukan) — Catatan: ${catatan}`,
       target_type: "Ruangan",
@@ -1169,8 +1289,8 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
     });
 
     store.appendActivity({
-      pengguna: store.currentUser.nama,
-      role: store.currentUser.role,
+      pengguna: store.currentUser?.nama || "Staff",
+      role: store.currentUser?.role || "Staff",
       menu: "Opname",
       aksi: `SO Massal — ${massVerifyRoom || "Ruangan"}, ${verifiedAssets.length} aset diverifikasi Baik`,
       target_type: "Ruangan",
@@ -2335,7 +2455,8 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                     assignedRoomId: matchedMasterRoom?.id ? String(matchedMasterRoom.id) : "",
                     assignedRoomName: matchedMasterRoom?.namaRuangan || activeAsset.Nama_ruangan || "",
                     assignedGedung: matchedMasterRoom?.namaGedung || activeAsset.nama_gedung || activeAsset.Gedung || "",
-                    assignedKodeRuangan: matchedMasterRoom?.kodeRuangan || activeAsset.kode_ruangan || ""
+                    assignedKodeRuangan: matchedMasterRoom?.kodeRuangan || activeAsset.kode_ruangan || "",
+                    photo: (activeAsset as any).foto || (activeAsset as any).foto_fisik || ""
                   };
 
                   const hasAnswer = Boolean(
@@ -2352,46 +2473,61 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col">
 
                       {/* Photo Placeholder / Photo Camera Input */}
-                      <div className="bg-slate-100 h-44 sm:h-52 relative flex items-center justify-center border-b border-slate-200">
+                      <div className="bg-slate-100 h-48 sm:h-56 relative flex items-center justify-center border-b border-slate-200 overflow-hidden">
                         {draft.photo ? (
                           <div className="w-full h-full relative group">
-                            <img src={draft.photo} alt="Preview" className="w-full h-full object-cover" />
-                            <button
-                              onClick={() => {
-                                setSessionDrafts(prev => ({
-                                  ...prev,
-                                  [activeAsset.id]: { ...draft, photo: "" }
-                                }));
-                              }}
-                              className="absolute top-2 right-2 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-all cursor-pointer"
-                            >
-                              <X size={16} />
-                            </button>
+                            <img
+                              src={draft.photo}
+                              alt="Foto Fisik Aset"
+                              className="w-full h-full object-cover"
+                            />
+                            {/* Overlay Controls: Ganti Foto & Hapus Foto */}
+                            <div className="absolute inset-0 bg-black/40 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-3">
+                              <button
+                                type="button"
+                                onClick={() => setIsCameraOpen(true)}
+                                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer min-h-[44px]"
+                              >
+                                <Camera size={15} />
+                                <span>Ganti Foto</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedDraft = { ...draft, photo: "" };
+                                  setSessionDrafts((prev) => ({
+                                    ...prev,
+                                    [activeAsset.id]: updatedDraft,
+                                  }));
+                                  if (updatedDraft.kondisi && updatedDraft.lokasiSesuai !== null) {
+                                    saveAssetVerification(activeAsset, updatedDraft);
+                                  }
+                                }}
+                                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer min-h-[44px]"
+                              >
+                                <Trash2 size={15} />
+                                <span>Hapus Foto</span>
+                              </button>
+                            </div>
+                            <div className="absolute top-2 left-2 px-2.5 py-1 bg-black/60 backdrop-blur-xs text-[10px] font-bold text-white rounded-md pointer-events-none flex items-center gap-1.5 shadow-xs">
+                              <CheckCircle2 size={12} className="text-emerald-400" />
+                              Foto Fisik Terlampir
+                            </div>
                           </div>
                         ) : (
-                          <label className="w-full h-full flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-200/50 transition-colors">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-md text-slate-400">
-                              <Camera size={22} />
+                          <button
+                            type="button"
+                            onClick={() => setIsCameraOpen(true)}
+                            className="w-full h-full flex flex-col items-center justify-center gap-2.5 cursor-pointer hover:bg-slate-200/60 active:bg-slate-200 transition-colors p-4 min-h-[44px]"
+                          >
+                            <div className="w-13 h-13 bg-white rounded-2xl flex items-center justify-center shadow-md text-blue-600 border border-slate-200">
+                              <Camera size={26} />
                             </div>
-                            <span className="text-xs font-black text-slate-600">Ambil Foto Fisik Aset</span>
-                            <span className="text-[10px] text-slate-400 font-bold">Kamera HP atau File</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const url = URL.createObjectURL(file);
-                                  setSessionDrafts(prev => ({
-                                    ...prev,
-                                    [activeAsset.id]: { ...draft, photo: url }
-                                  }));
-                                }
-                              }}
-                            />
-                          </label>
+                            <div className="text-center">
+                              <span className="text-xs font-black text-slate-800 block">Ambil Foto Fisik Aset</span>
+                              <span className="text-[10px] text-slate-500 font-bold block mt-0.5">Kamera Live / Kamera HP / Galeri</span>
+                            </div>
+                          </button>
                         )}
                       </div>
 
@@ -2420,6 +2556,32 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                 <Check size={10} /> Terverifikasi
                               </span>
                             )}
+                            {(() => {
+                              const mReq = (store.mutationRequests || []).find(m => m.asset_id === activeAsset.id && m.sumber === "so");
+                              if (!mReq) return null;
+                              if (mReq.status === "Menunggu Persetujuan" || mReq.status === "Draft") {
+                                return (
+                                  <span className="bg-amber-100 text-amber-900 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-amber-300 flex items-center gap-1">
+                                    <Clock size={10} /> Menunggu Mutasi
+                                  </span>
+                                );
+                              }
+                              if (mReq.status === "Ditolak") {
+                                return (
+                                  <span className="bg-rose-100 text-rose-900 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-rose-300 flex items-center gap-1" title={mReq.alasan_penolakan || "Mutasi ditolak"}>
+                                    <AlertTriangle size={10} /> Mutasi Ditolak
+                                  </span>
+                                );
+                              }
+                              if (mReq.status === "Disetujui" || mReq.status === "Selesai") {
+                                return (
+                                  <span className="bg-emerald-100 text-emerald-900 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-emerald-300 flex items-center gap-1">
+                                    <Check size={10} /> Mutasi Disetujui
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           <h3 className="font-extrabold text-slate-800 text-base mt-2 leading-tight">
                             {activeAsset.Nama_Barang || activeAsset.nama_barang}
@@ -2707,9 +2869,33 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
                                   {draft.lokasiSesuai === false && (
                                     <div className="pt-2 p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-2 animate-in fade-in slide-in-from-top-2">
-                                      <label className="block text-[10px] font-black text-amber-900 uppercase">
-                                        Pilih Ruangan Master Baru (256 Ruangan Master) <span className="text-rose-500">*</span>
-                                      </label>
+                                      <div className="flex items-center justify-between">
+                                        <label className="block text-[10px] font-black text-amber-900 uppercase">
+                                          {isPekerjaSO ? "Ruangan Tujuan (Usulan Mutasi ke Admin Pusat)" : "Pilih Ruangan Master Baru (256 Ruangan Master)"} <span className="text-rose-500">*</span>
+                                        </label>
+                                        {targetRoomSearch && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setTargetRoomSearch("")}
+                                            className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer"
+                                          >
+                                            Reset Filter
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      {/* Search input for target room */}
+                                      <div className="relative">
+                                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                          type="text"
+                                          placeholder="Cari gedung atau ruangan target..."
+                                          value={targetRoomSearch}
+                                          onChange={(e) => setTargetRoomSearch(e.target.value)}
+                                          className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-800 placeholder:text-slate-400"
+                                        />
+                                      </div>
+
                                       <select
                                         value={draft.assignedRoomId || ""}
                                         onChange={(e) => {
@@ -2738,7 +2924,13 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                       >
                                         <option value="">-- Pilih Ruangan Master Target --</option>
                                         {masterCampuses.map(campus => {
-                                          const roomsInC = masterRooms.filter(r => r.kampus === campus || (campus.includes("Lainnya") && (r.kampus === "Kampus Lainnya" || r.kampus === "Kampus / Lokasi Lainnya")));
+                                          const q = targetRoomSearch.trim().toLowerCase();
+                                          const roomsInC = masterRooms.filter(r => {
+                                            const inCamp = r.kampus === campus || (campus.includes("Lainnya") && (r.kampus === "Kampus Lainnya" || r.kampus === "Kampus / Lokasi Lainnya"));
+                                            if (!inCamp) return false;
+                                            if (!q) return true;
+                                            return r.namaRuangan.toLowerCase().includes(q) || r.namaGedung.toLowerCase().includes(q) || (r.kodeRuangan && r.kodeRuangan.toLowerCase().includes(q));
+                                          });
                                           if (roomsInC.length === 0) return null;
                                           return (
                                             <optgroup key={campus} label={campus}>
@@ -2751,9 +2943,43 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                           );
                                         })}
                                       </select>
+
+                                      {/* Status mutasi if any */}
+                                      {(() => {
+                                        const mReq = (store.mutationRequests || []).find(m => m.asset_id === activeAsset.id && m.sumber === "so");
+                                        if (!mReq) return null;
+                                        if (mReq.status === "Menunggu Persetujuan" || mReq.status === "Draft") {
+                                          return (
+                                            <div className="p-2 bg-amber-100/90 text-amber-900 border border-amber-300 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                                              <Clock size={13} className="shrink-0 text-amber-700" />
+                                              <span>Usulan mutasi diajukan ke Admin Pusat (Menunggu Verifikasi)</span>
+                                            </div>
+                                          );
+                                        }
+                                        if (mReq.status === "Ditolak") {
+                                          return (
+                                            <div className="p-2 bg-rose-100/90 text-rose-900 border border-rose-300 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                                              <AlertTriangle size={13} className="shrink-0 text-rose-700" />
+                                              <span>Usulan mutasi ditolak: {mReq.alasan_penolakan || "Tidak disetujui"}</span>
+                                            </div>
+                                          );
+                                        }
+                                        if (mReq.status === "Disetujui" || mReq.status === "Selesai") {
+                                          return (
+                                            <div className="p-2 bg-emerald-100/90 text-emerald-900 border border-emerald-300 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                                              <Check size={13} className="shrink-0 text-emerald-700" />
+                                              <span>Mutasi telah disetujui Admin Pusat</span>
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+
                                       {draft.assignedRoomName && (
                                         <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                                          ✓ Lokasi baru: <span className="underline">{draft.assignedGedung} — {draft.assignedRoomName}</span>
+                                          ✓ {isPekerjaSO ? "Usulan lokasi baru: " : "Lokasi baru: "}
+                                          <span className="underline">{draft.assignedGedung} — {draft.assignedRoomName}</span>
+                                          {isPekerjaSO && <span className="text-[10px] text-slate-500 font-medium block mt-0.5">(Menunggu persetujuan Admin Pusat)</span>}
                                         </p>
                                       )}
                                     </div>
@@ -2762,9 +2988,33 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                               ) : (
                                 /* Wajib Assign Lokasi untuk Aset Tanpa Ruangan (Bucket Ruangan Lainnya) */
                                 <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl space-y-2.5 animate-in fade-in">
-                                  <p className="text-xs font-bold text-amber-900">
-                                    Aset ini belum memiliki ruangan master. Petugas <strong>wajib menentukan ruangan</strong> untuk aset ini dari daftar Master Ruangan.
-                                  </p>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-bold text-amber-900">
+                                      Aset ini belum memiliki ruangan master. Petugas <strong>wajib menentukan ruangan</strong> untuk aset ini dari daftar Master Ruangan.
+                                    </p>
+                                    {targetRoomSearch && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setTargetRoomSearch("")}
+                                        className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer shrink-0 ml-2"
+                                      >
+                                        Reset Filter
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Search input for target room */}
+                                  <div className="relative">
+                                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                      type="text"
+                                      placeholder="Cari gedung atau ruangan target..."
+                                      value={targetRoomSearch}
+                                      onChange={(e) => setTargetRoomSearch(e.target.value)}
+                                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-amber-300 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-800 placeholder:text-slate-400"
+                                    />
+                                  </div>
+
                                   <select
                                     value={draft.assignedRoomId || ""}
                                     onChange={(e) => {
@@ -2793,7 +3043,13 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                   >
                                     <option value="">-- Pilih Ruangan Master untuk Aset Ini --</option>
                                     {masterCampuses.map(campus => {
-                                      const roomsInC = masterRooms.filter(r => r.kampus === campus || (campus.includes("Lainnya") && (r.kampus === "Kampus Lainnya" || r.kampus === "Kampus / Lokasi Lainnya")));
+                                      const q = targetRoomSearch.trim().toLowerCase();
+                                      const roomsInC = masterRooms.filter(r => {
+                                        const inCamp = r.kampus === campus || (campus.includes("Lainnya") && (r.kampus === "Kampus Lainnya" || r.kampus === "Kampus / Lokasi Lainnya"));
+                                        if (!inCamp) return false;
+                                        if (!q) return true;
+                                        return r.namaRuangan.toLowerCase().includes(q) || r.namaGedung.toLowerCase().includes(q) || (r.kodeRuangan && r.kodeRuangan.toLowerCase().includes(q));
+                                      });
                                       if (roomsInC.length === 0) return null;
                                       return (
                                         <optgroup key={campus} label={campus}>
@@ -2809,7 +3065,9 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
                                   {draft.assignedRoomName ? (
                                     <p className="text-[11px] font-bold text-emerald-800 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                                      ✓ Ditugaskan ke: <span className="underline">{draft.assignedGedung} — {draft.assignedRoomName}</span>
+                                      ✓ {isPekerjaSO ? "Usulan ditugaskan ke: " : "Ditugaskan ke: "}
+                                      <span className="underline">{draft.assignedGedung} — {draft.assignedRoomName}</span>
+                                      {isPekerjaSO && <span className="text-[10px] text-slate-500 font-medium block mt-0.5">(Menunggu persetujuan Admin Pusat)</span>}
                                     </p>
                                   ) : (
                                     <p className="text-[10px] text-rose-600 font-bold">
@@ -3025,15 +3283,37 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                       </span>
                                     </td>
                                     <td className="px-3.5 py-2.5 text-center">
-                                      {isVerified ? (
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                          <CheckCircle2 size={11} /> Terverifikasi
-                                        </span>
-                                      ) : (
-                                        <span className="inline-block text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                                          Belum SO
-                                        </span>
-                                      )}
+                                      {(() => {
+                                        const mReq = (store.mutationRequests || []).find(m => m.asset_id === item.id && m.sumber === "so");
+                                        return (
+                                          <div className="flex flex-col items-center gap-1">
+                                            {isVerified ? (
+                                              <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                <CheckCircle2 size={11} /> Terverifikasi
+                                              </span>
+                                            ) : (
+                                              <span className="inline-block text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                                Belum SO
+                                              </span>
+                                            )}
+                                            {mReq && (
+                                              mReq.status === "Menunggu Persetujuan" || mReq.status === "Draft" ? (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                                                  <Clock size={9} /> Menunggu Mutasi
+                                                </span>
+                                              ) : mReq.status === "Ditolak" ? (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300" title={mReq.alasan_penolakan || "Ditolak"}>
+                                                  <AlertTriangle size={9} /> Mutasi Ditolak
+                                                </span>
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                                                  <Check size={9} /> Mutasi Disetujui
+                                                </span>
+                                              )
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </td>
                                   </tr>
                                 );
@@ -3078,15 +3358,37 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
                                       </span>
                                     </td>
                                     <td className="px-3.5 py-2.5 text-center">
-                                      {isVerified ? (
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                          <CheckCircle2 size={11} /> Terverifikasi
-                                        </span>
-                                      ) : (
-                                        <span className="inline-block text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                                          Belum SO
-                                        </span>
-                                      )}
+                                      {(() => {
+                                        const mReq = (store.mutationRequests || []).find(m => m.asset_id === obsId && m.sumber === "so");
+                                        return (
+                                          <div className="flex flex-col items-center gap-1">
+                                            {isVerified ? (
+                                              <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                <CheckCircle2 size={11} /> Terverifikasi
+                                              </span>
+                                            ) : (
+                                              <span className="inline-block text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                                Belum SO
+                                              </span>
+                                            )}
+                                            {mReq && (
+                                              mReq.status === "Menunggu Persetujuan" || mReq.status === "Draft" ? (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                                                  <Clock size={9} /> Menunggu Mutasi
+                                                </span>
+                                              ) : mReq.status === "Ditolak" ? (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300" title={mReq.alasan_penolakan || "Ditolak"}>
+                                                  <AlertTriangle size={9} /> Mutasi Ditolak
+                                                </span>
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                                                  <Check size={9} /> Mutasi Disetujui
+                                                </span>
+                                              )
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </td>
                                   </tr>
                                 );
@@ -3235,8 +3537,8 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
                         // 3. Log complete SO session to Menu Aktivitas
                         store.appendActivity({
-                          pengguna: store.currentUser.nama,
-                          role: store.currentUser.role,
+                          pengguna: store.currentUser?.nama || "Staff",
+                          role: store.currentUser?.role || "Staff",
                           menu: "Opname",
                           aksi: `SO selesai — ${roomDesc}, ${totalVerified} aset (${baikCount} Baik, ${rusakCount} Rusak)${assignedPetugas}`,
                           target_type: "Ruangan",
@@ -3768,19 +4070,41 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
 
                             {/* Status SO */}
                             <td className="px-4 py-3 text-center">
-                              {row.isVerified ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  <Check size={11} /> Sudah di-SO
-                                </span>
-                              ) : row.statusSOText ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-50 text-amber-900 border border-amber-300">
-                                  <AlertTriangle size={11} /> {row.statusSOText}
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                                  Belum di-SO
-                                </span>
-                              )}
+                              {(() => {
+                                const mReq = (store.mutationRequests || []).find(m => (m.asset_id === row.sourceKey || m.asset_id === (row as any).id) && m.sumber === "so");
+                                return (
+                                  <div className="flex flex-col items-center gap-1">
+                                    {row.isVerified ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        <Check size={11} /> Sudah di-SO
+                                      </span>
+                                    ) : row.statusSOText ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-50 text-amber-900 border border-amber-300">
+                                        <AlertTriangle size={11} /> {row.statusSOText}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                                        Belum di-SO
+                                      </span>
+                                    )}
+                                    {mReq && (
+                                      mReq.status === "Menunggu Persetujuan" || mReq.status === "Draft" ? (
+                                        <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                                          <Clock size={9} /> Menunggu Mutasi
+                                        </span>
+                                      ) : mReq.status === "Ditolak" ? (
+                                        <span className="inline-flex items-center gap-1 text-[9px] font-black text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300" title={mReq.alasan_penolakan || "Ditolak"}>
+                                          <AlertTriangle size={9} /> Mutasi Ditolak
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[9px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                                          <Check size={9} /> Mutasi Disetujui
+                                        </span>
+                                      )
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
 
                             {/* Kondisi */}
@@ -4014,32 +4338,37 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
               <div className="space-y-2 pt-2">
                 <label className="block text-xs font-black text-slate-600 uppercase tracking-wider">Foto Bukti Fisik Ruangan <span className="text-rose-500">* Wajib</span></label>
                 {massProofPhoto ? (
-                  <div className="relative w-full h-32 rounded-xl overflow-hidden border border-slate-200">
+                  <div className="relative w-full h-36 rounded-xl overflow-hidden border border-slate-200 group">
                     <img src={massProofPhoto} alt="Bukti massal" className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => setMassProofPhoto("")}
-                      className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-all cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="absolute inset-0 bg-black/40 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsMassCameraOpen(true)}
+                        className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center gap-1.5 min-h-[44px]"
+                      >
+                        <Camera size={15} /> Ganti Foto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMassProofPhoto("")}
+                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center gap-1.5 min-h-[44px]"
+                      >
+                        <Trash2 size={15} /> Hapus
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <label className="border border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-6 flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors hover:bg-slate-50">
-                    <Camera size={20} className="text-slate-400" />
-                    <span className="text-xs font-bold text-slate-600">Unggah Foto Ruangan</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setMassProofPhoto(URL.createObjectURL(file));
-                        }
-                      }}
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsMassCameraOpen(true)}
+                    className="w-full border border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors hover:bg-slate-50 min-h-[44px]"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-xs text-emerald-600 border border-slate-200">
+                      <Camera size={22} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700">Ambil Foto Fisik Ruangan</span>
+                    <span className="text-[10px] text-slate-400 font-medium">Kamera HP / Galeri</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -4132,6 +4461,52 @@ export function StockOpnamePage({ topBar }: { topBar?: React.ReactNode }) {
           </div>
         </div>
       )}
+
+      {/* ==================== CAMERA MODAL UNTUK FOTO FISIK ASET ==================== */}
+      <AssetCameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        title="Ambil Foto Fisik Aset"
+        subTitle={
+          sessionAssets[currentSessionIndex]
+            ? `${sessionAssets[currentSessionIndex].kode_tag_aset || sessionAssets[currentSessionIndex].id} - ${sessionAssets[currentSessionIndex].Nama_Barang || sessionAssets[currentSessionIndex].nama_barang || "Aset"}`
+            : undefined
+        }
+        onCapture={(photoDataUrl) => {
+          const active = sessionAssets[currentSessionIndex];
+          if (!active) return;
+          const currentDraft = sessionDrafts[active.id] || {
+            kondisi: "",
+            catatan: "",
+            lokasiSesuai: null,
+            lokasiBaru: "",
+          };
+          const updatedDraft = {
+            ...currentDraft,
+            photo: photoDataUrl,
+          };
+          setSessionDrafts((prev) => ({
+            ...prev,
+            [active.id]: updatedDraft,
+          }));
+          if (updatedDraft.kondisi && updatedDraft.lokasiSesuai !== null) {
+            saveAssetVerification(active, updatedDraft);
+          }
+          showToast("Foto fisik aset berhasil disimpan");
+        }}
+      />
+
+      {/* ==================== CAMERA MODAL UNTUK SO MASSAL RUANGAN ==================== */}
+      <AssetCameraModal
+        isOpen={isMassCameraOpen}
+        onClose={() => setIsMassCameraOpen(false)}
+        title="Foto Bukti Fisik Ruangan"
+        subTitle={massVerifyRoom || undefined}
+        onCapture={(photoDataUrl) => {
+          setMassProofPhoto(photoDataUrl);
+          showToast("Foto ruangan berhasil disimpan");
+        }}
+      />
 
       {/* ==================== FLOATING TOAST NOTIFICATION ==================== */}
       {toastMsg && (

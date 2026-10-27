@@ -195,7 +195,7 @@ function DetailDrawer({ doc, onClose, onVerify }: { doc: DokRecord; onClose: () 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full z-50 w-[480px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed top-0 right-0 h-full z-50 w-full sm:w-[480px] max-w-full bg-white shadow-2xl flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-start gap-3">
           <div className="flex-1 min-w-0">
@@ -226,7 +226,7 @@ function DetailDrawer({ doc, onClose, onVerify }: { doc: DokRecord; onClose: () 
           </div>
 
           {/* Info grid */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
             {[
               { label: "ID Dokumen",   value: doc.id },
               { label: "Format",       value: <span className="text-xs font-bold" style={{ color: fmtColor(doc.format) }}>{doc.format}</span> },
@@ -727,35 +727,37 @@ export function DokumenPage({ topBar }: { topBar: React.ReactNode }) {
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5 min-w-0">
 
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Dokumen</h1>
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900">Dokumen</h1>
             <p className="text-xs text-gray-500 mt-0.5">
               Kelola seluruh dokumen aset: pengadaan, BAP, maintenance, mutasi, opname, regulasi, dan referensi.
             </p>
           </div>
           <button onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-black transition-colors shadow-sm">
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-black transition-colors shadow-sm self-start sm:self-auto cursor-pointer">
             <Plus size={15} /> Upload Dokumen
           </button>
         </div>
 
         {/* KPI cards */}
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           {kpiCards.map((s) => (
-            <div key={s.label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs text-gray-500">{s.label}</span>
+            <div key={s.label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 min-w-0 transition-all hover:shadow-md flex flex-col justify-between">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <span className="text-xs font-medium text-gray-500 break-words flex-1 leading-snug">{s.label}</span>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                   style={{ backgroundColor: s.color + "15", color: s.color }}>
-                  <s.Icon size={18} />
+                  <s.Icon size={16} />
                 </div>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>
+              <div className="min-w-0">
+                <p className="text-xl sm:text-2xl font-bold text-gray-900 truncate" title={s.value}>{s.value}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 truncate">{s.sub}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -920,7 +922,7 @@ export function DokumenPage({ topBar }: { topBar: React.ReactNode }) {
 
         {/* Card view */}
         {view === "card" && (
-          <div className="grid grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
             {filtered.map((doc) => (
               <div key={doc.id} onClick={() => setOpenDocId(doc.id)}
                 className={`bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all flex flex-col ${doc.statusKelengkapan === "Belum Lengkap" ? "border-amber-200" : ""}`}>

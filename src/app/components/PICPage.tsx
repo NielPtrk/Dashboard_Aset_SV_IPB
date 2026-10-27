@@ -74,17 +74,17 @@ function SoftBadge({ label, color }: { label: string; color: "green"|"amber"|"re
 
 function KpiCard({ label, value, sub, badge }: { label: string; value: string; sub: string; badge?: boolean }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-5 min-w-0">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs font-medium text-gray-500">{label}</span>
+        <span className="text-xs font-medium text-gray-500 line-clamp-1">{label}</span>
         {badge && (
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded whitespace-nowrap">
             <Database size={9} /> Sistem
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-400 mt-1">{sub}</p>
+      <p className="text-xl sm:text-2xl font-bold text-gray-900 truncate" title={value}>{value}</p>
+      <p className="text-xs text-gray-400 mt-1 truncate">{sub}</p>
     </div>
   );
 }
@@ -106,13 +106,13 @@ function PICModal({ open, onClose, initialData, onSave }: {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/20 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-[480px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] bg-white shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <span className="text-sm font-semibold text-gray-800">{isEdit ? "Edit Penanggung Jawab" : "Tambah Penanggung Jawab"}</span>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {([
               { label: "Nama Lengkap",  field: "nama",    ph: "cth. Budi Santoso" },
               { label: "NIP",           field: "nip",     ph: "cth. 198702152010011003" },
@@ -128,7 +128,7 @@ function PICModal({ open, onClose, initialData, onSave }: {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Kampus</label>
               <select value={form.kampus ?? ""} onChange={inp("kampus")}
@@ -168,7 +168,7 @@ function PICDrawer({ pic, assets, riwayat, onClose, onEdit }: {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/20 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-[520px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[520px] bg-white shadow-2xl flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 shrink-0">
           <span className="text-sm font-semibold text-gray-800">Detail Penanggung Jawab</span>
@@ -221,7 +221,7 @@ function PICDrawer({ pic, assets, riwayat, onClose, onEdit }: {
               </div>
             </div>
             {/* Asset summary */}
-            <div className="grid grid-cols-4 gap-2 mt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
               {[
                 { label: "Total", val: pic.totalAset, color: "#374151" },
                 { label: "Aktif", val: pic.asetAktif, color: GREEN },
@@ -468,11 +468,11 @@ export function PICPage({ topBar }: { topBar?: React.ReactNode }) {
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 min-w-0">
         <h1 className="text-xl font-bold text-gray-900">Penanggung Jawab Aset</h1>
 
         {/* KPI cards */}
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard label="Total PIC Terdaftar"      value={data.length.toString()}                sub="Dari seluruh kampus"         badge />
           <KpiCard label="Aset Sudah Ada PIC"        value={totalAset.toLocaleString("id")}       sub="Aset terkelola aktif"        badge />
           <KpiCard label="Aset Tanpa PIC"            value={asetTanpaPIC.toLocaleString("id")}    sub="Perlu penugasan PIC"         badge />
@@ -481,8 +481,8 @@ export function PICPage({ topBar }: { topBar?: React.ReactNode }) {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="flex border-b border-gray-100 px-2 pt-2 gap-0">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-w-0">
+          <div className="flex overflow-x-auto border-b border-gray-100 px-2 pt-2 gap-0 scrollbar-none">
             {TABS.map(t => (
               <button
                 key={t}

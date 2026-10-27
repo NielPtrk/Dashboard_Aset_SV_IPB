@@ -1,595 +1,1632 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
-  Database, CheckCircle2, AlertTriangle, MapPin, Users,
-  ChevronRight, Download, RefreshCw, Eye, Lightbulb,
-  TrendingUp, FileText, Wrench, ArrowLeftRight, ClipboardList,
-  AlertCircle, Info, BarChart2, CircleDollarSign, Clock, CheckSquare, XSquare, Building
+  ArrowUpRight,
+  Calendar,
+  CheckCircle2,
+  Layers,
+  Building,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  ArrowLeft,
+  Search,
+  X,
+  ArrowUpDown,
+  Info,
+  Package,
+  ExternalLink,
+  Lock,
+  LogIn
 } from "lucide-react";
-import { useDataStore, getDataQuality, getOpnameStatus, getMaintenanceStatus } from "./DataStore";
+import { useDataStore, type RuanganData, type Asset } from "./DataStore";
+import { SEED_RUANGAN } from "./ruanganSeed";
+import { buildAssetRoomMap } from "./assetRoomMatcher";
 import { useApp } from "./AppContext";
 
-const fmtRupiahShort = (n: number) => {
-  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} jt`;
-  if (n >= 1_000)         return `Rp ${(n / 1_000).toFixed(0)} rb`;
-  return `Rp ${n}`;
+// ── Formatting Helpers ────────────────────────────────────────────────────────
+const fmtRupiahCompact = (n: number) => {
+  if (!n || isNaN(n)) return "Rp 0";
+  if (n >= 1_000_000_000_000) {
+    return `Rp ${(n / 1_000_000_000_000).toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} T`;
+  }
+  if (n >= 1_000_000_000) {
+    return `Rp ${(n / 1_000_000_000).toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M`;
+  }
+  if (n >= 1_000_000) {
+    return `Rp ${(n / 1_000_000).toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} jt`;
+  }
+  if (n >= 1_000) {
+    return `Rp ${(n / 1_000).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} rb`;
+  }
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
 };
 
 const fmtRupiahFull = (n: number) => {
-  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n || 0);
+  if (!n || isNaN(n)) return "Rp 0";
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
 };
 
-const P = "#111827";
-const GREEN = "#22C55E";
-const RED = "#EF4444";
-const AMBER = "#F59E0B";
-
-const COND_COLORS: Record<string, string> = {
-  "Baik": GREEN,
-  "Perlu Monitoring": "#84CC16", 
-  "Rusak Ringan": AMBER,
-  "Rusak Berat": RED,
-  "Prioritas Penggantian": "#B91C1C",
-  "Belum Dicek": "#9CA3AF"
+const fmtPercent = (p: number) => {
+  if (!p || isNaN(p) || p <= 0) return "0,0%";
+  return `${p.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 };
 
-// ── KPI Card ─────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, icon: Icon, iconColor, iconBg }: {
-  label: string; value: string; sub: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  iconColor: string; iconBg: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-500">{label}</span>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: iconBg }}>
-          <Icon size={15} style={{ color: iconColor }} />
-        </div>
-      </div>
-      <div>
-        <p className="text-[26px] font-bold text-gray-900 leading-tight">{value}</p>
-        <p className="text-xs text-gray-400 mt-1">{sub}</p>
-      </div>
-    </div>
-  );
-}
+const parseVal = (v: any): number => {
+  if (!v) return 0;
+  if (typeof v === "number") return v;
+  const num = parseFloat(String(v).replace(/[^0-9.-]+/g, ""));
+  return isNaN(num) ? 0 : num;
+};
 
-// ── Progress Row ─────────────────────────────────────────────────────────────
-function ProgressRow({ label, pct, count, total }: { label: string; pct: number; count: number; total: number }) {
-  const color = pct >= 80 ? GREEN : pct >= 50 ? AMBER : RED;
-  const statusLabel = pct >= 80 ? "Baik" : pct >= 50 ? "Perlu Perhatian" : "Kritis";
-  const statusBg = pct >= 80 ? "#DCFCE7" : pct >= 50 ? "#FEF3C7" : "#FEE2E2";
-  const statusColor = pct >= 80 ? "#16A34A" : pct >= 50 ? "#D97706" : "#DC2626";
-  return (
-    <div className="flex items-center gap-4">
-      <div className="w-44 shrink-0">
-        <span className="text-xs text-gray-700 font-medium">{label}</span>
-      </div>
-      <div className="flex-1">
-        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
-        </div>
-      </div>
-      <div className="w-10 text-right shrink-0">
-        <span className="text-xs font-semibold text-gray-700">{pct}%</span>
-      </div>
-      <div className="w-24 shrink-0 text-right">
-        <span className="text-[10px] text-gray-400">{count.toLocaleString("id-ID")}/{total.toLocaleString("id-ID")}</span>
-      </div>
-      <div className="w-28 shrink-0 flex justify-end">
-        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: statusBg, color: statusColor }}>
-          {statusLabel}
-        </span>
-      </div>
-    </div>
-  );
-}
+// ── Canonical Campuses Definition ─────────────────────────────────────────────
+const CANONICAL_CAMPUSES = [
+  "Kampus Cilibende",
+  "Kampus Gunung Gede",
+  "Kampus Pajajaran",
+  "Kampus Baranangsiang",
+  "Kampus / Lokasi Lainnya",
+  "Belum Dikategorikan",
+] as const;
 
-// ── Status Badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: "Lengkap" | "Perlu Verifikasi" | "Belum Tersedia" | "Sebagian" }) {
-  const styles: Record<string, { bg: string; color: string }> = {
-    "Lengkap":          { bg: "#DCFCE7", color: "#16A34A" },
-    "Perlu Verifikasi": { bg: "#FEF3C7", color: "#D97706" },
-    "Belum Tersedia":   { bg: "#FEE2E2", color: "#DC2626" },
-    "Sebagian":         { bg: "#EDE9FE", color: "#7C3AED" },
+type CampusName = typeof CANONICAL_CAMPUSES[number];
+
+const CAMPUS_SHORT_LABELS: Record<CampusName, string> = {
+  "Kampus Cilibende": "Cilibende",
+  "Kampus Gunung Gede": "Gunung Gede",
+  "Kampus Pajajaran": "Pajajaran",
+  "Kampus Baranangsiang": "Baranangsiang",
+  "Kampus / Lokasi Lainnya": "Lokasi lainnya",
+  "Belum Dikategorikan": "Belum dikategorikan",
+};
+
+const CAMPUS_BAR_COLORS: Record<CampusName, string> = {
+  "Kampus Cilibende": "#1D63ED",
+  "Kampus Gunung Gede": "#38BDF8",
+  "Kampus Pajajaran": "#818CF8",
+  "Kampus Baranangsiang": "#93C5FD",
+  "Kampus / Lokasi Lainnya": "#CBD5E1",
+  "Belum Dikategorikan": "#DBEAFE",
+};
+
+// ── Types for Internal Drill-Down Hierarchy ───────────────────────────────────
+interface AggregatedRoom {
+  id: string;
+  sourceId?: number | null;
+  kodeRuangan: string;
+  namaRuangan: string;
+  namaGedung: string;
+  kampus: string;
+  lantai: string;
+  kategori: string;
+  luas: number;
+  kapasitas: number;
+  unitPengguna: string;
+  assets: Asset[];
+  totalValue: number;
+  bmnCount: number;
+  obsCount: number;
+  kategoriBreakdown: {
+    PM: { count: number; value: number };
+    ATB: { count: number; value: number };
+    ATL: { count: number; value: number };
+    AL: { count: number; value: number };
   };
-  const s = styles[status] ?? { bg: "#F3F4F6", color: "#6B7280" };
-  return (
-    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: s.bg, color: s.color }}>
-      {status}
-    </span>
-  );
 }
 
-function pctStatus(pct: number): "Lengkap" | "Perlu Verifikasi" | "Belum Tersedia" | "Sebagian" {
-  if (pct >= 85) return "Lengkap";
-  if (pct >= 60) return "Perlu Verifikasi";
-  if (pct >= 35) return "Sebagian";
-  return "Belum Tersedia";
+interface AggregatedBuilding {
+  namaGedung: string;
+  kampus: string;
+  rooms: AggregatedRoom[];
+  totalAssets: number;
+  totalValue: number;
+  totalRuangan: number;
 }
 
-export function OverviewPage({ topBar }: { topBar: React.ReactNode }) {
+interface AggregatedCampus {
+  name: CampusName;
+  description?: string;
+  buildings: AggregatedBuilding[];
+  totalAssets: number;
+  totalValue: number;
+  totalGedung: number;
+  totalRuangan: number;
+  percentageValue: number;
+  percentageAssets: number;
+}
+
+export function OverviewPage({
+  topBar,
+  onOpenAuth,
+}: {
+  topBar: React.ReactNode;
+  onOpenAuth?: (mode?: any) => void;
+}) {
   const store = useDataStore();
   const { userProfile } = useApp();
-  const [expandRekomen, setExpandRekomen] = useState(false);
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Selamat pagi" : hour < 17 ? "Selamat siang" : "Selamat malam";
-  const userFirstName = userProfile?.nama ? userProfile.nama.split(" ")[0] : "Pengguna";
 
-  const assets = store.assets;
-  const total = assets.length;
+  // Selected navigation levels:
+  // selectedCampus === null -> Level 1 (Kampus table)
+  // selectedCampus !== null && selectedBuilding === null -> Level 2 (Gedung list)
+  // selectedCampus !== null && selectedBuilding !== null -> Level 3 (Ruangan list)
+  const [selectedCampus, setSelectedCampus] = useState<CampusName | null>(null);
+  const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
 
-  const lengkap   = useMemo(() => assets.filter(a => getDataQuality(a) === "Lengkap").length, [assets]);
-  const perluVerif = useMemo(() => assets.filter(a => getDataQuality(a) === "Perlu Verifikasi").length, [assets]);
-  const noLokasi  = useMemo(() => store.computeAssetsWithoutClearLocation(), [store]);
-  const noPIC     = useMemo(() => store.computeAssetsWithoutPIC(), [store]);
+  // Campus dropdown toggle
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const verifiedCount = store.computeStockOpnameProgress().done;
+  // Active room detail modal/drawer (Level 4)
+  const [detailRoom, setDetailRoom] = useState<AggregatedRoom | null>(null);
 
-  const kondisiList = useMemo(() => {
-    const counts: Record<string, number> = {};
-    assets.forEach(a => {
-      const k = (a.Kondisi || a.kondisi || "").trim();
-      const cat = k === "" || k === "-" ? "Belum Dicek" : k;
-      counts[cat] = (counts[cat] || 0) + 1;
-    });
-    
-    return Object.entries(counts)
-      .map(([label, count]) => ({
-        label,
-        count,
-        pct: total ? (count / total) * 100 : 0,
-        color: COND_COLORS[label] || COND_COLORS["Belum Dicek"]
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [assets, total]);
+  // Room list search & sort state (Level 3)
+  const [roomSearchQuery, setRoomSearchQuery] = useState("");
+  const [roomSortBy, setRoomSortBy] = useState<"nilai-desc" | "nilai-asc" | "aset-desc" | "aset-asc" | "nama-asc">("nilai-desc");
 
-  const identitasPct  = total ? Math.round(assets.filter(a => a.Nama_Barang && a.Nama_Barang !== "-").length / total * 100) : 0;
-  const keuanganPct   = total ? Math.round(assets.filter(a => a._nilai_buku && a.TglPerolehan && a.TglPerolehan !== "-").length / total * 100) : 0;
-  const lokasiPct     = total ? Math.round(assets.filter(a => a.nama_gedung && a.nama_gedung !== "-").length / total * 100) : 0;
-  const picPct        = total ? Math.round(assets.filter(a => a.nama_pic && a.nama_pic !== "-").length / total * 100) : 0;
-  const opnamePct     = total ? Math.round(assets.filter(a => a.tanggal_opname_terakhir && a.tanggal_opname_terakhir !== "-").length / total * 100) : 0;
-  const maintPct      = total ? Math.round(assets.filter(a => a.tanggal_maintenance_terakhir && a.tanggal_maintenance_terakhir !== "-").length / total * 100) : 0;
+  // Detail Drawer asset list search & pagination
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [assetPage, setAssetPage] = useState(1);
+  const pageSize = 10;
 
-  const pmCount  = useMemo(() => store.getAssetsByJenis("PM").length, [store]);
-  const atbCount = useMemo(() => store.getAssetsByJenis("ATB").length, [store]);
-  const atlCount = useMemo(() => store.getAssetsByJenis("ATL").length, [store]);
-  const alCount  = useMemo(() => store.getAssetsByJenis("AL").length, [store]);
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    if (isDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isDropdownOpen]);
 
-  const recentActivities = useMemo(() =>
-    store.activityLogs.slice(0, 5).map(log => ({
-      id: log.target_id || log.id.toString(),
-      name: log.pengguna,
-      action: log.aksi,
-      time: log.waktu,
-      color: log.status === "Berhasil" ? GREEN : log.status === "Berisiko" ? AMBER : RED,
-    })),
-    [store.activityLogs],
-  );
+  // Reset pagination when detail room or search query changes
+  useEffect(() => {
+    setAssetPage(1);
+    setAssetSearchQuery("");
+  }, [detailRoom]);
 
-  const overdueCount = store.computeMaintenanceOverdue();
+  // Master rooms reference from store or SEED
+  const masterRooms: RuanganData[] = useMemo(() => {
+    return store.ruangan && store.ruangan.length > 0 ? store.ruangan : SEED_RUANGAN;
+  }, [store.ruangan]);
 
-  const rekomendasi = useMemo(() => {
-    const recs = [];
-    const belumVerif = store.computeStockOpnameProgress().total - store.computeStockOpnameProgress().done;
-    if (belumVerif > 0) recs.push({ icon: ClipboardList, color: "#22C55E", bg: "#DCFCE7", text: `${belumVerif} aset belum pernah diverifikasi — disarankan mulai proses Stock Opname.`, tag: "Opname" });
-    
-    const rusakCount = assets.filter(a => (a.Kondisi || a.kondisi)?.includes("Rusak")).length;
-    if (rusakCount > 0) recs.push({ icon: AlertCircle, color: RED, bg: "#FEE2E2", text: `${rusakCount} aset dilaporkan dalam kondisi rusak. Segera jadwalkan perbaikan atau penghapusan.`, tag: "Kondisi" });
-    
-    if (noLokasi > 0) recs.push({ icon: MapPin, color: "#F59E0B", bg: "#FEF3C7", text: `Lengkapi data lokasi untuk ${noLokasi} aset tanpa koordinat gedung yang jelas.`, tag: "Lokasi" });
-    if (noPIC > 0) recs.push({ icon: Users, color: "#3B82F6", bg: "#EFF6FF", text: `Verifikasi dan tetapkan PIC untuk ${noPIC} aset yang belum memiliki penanggung jawab.`, tag: "PIC" });
-    
-    if (overdueCount > 0) recs.push({ icon: Wrench, color: "#8B5CF6", bg: "#EDE9FE", text: `${overdueCount} aset memiliki jadwal maintenance yang sudah terlewat. Segera jadwalkan perbaikan.`, tag: "Maintenance" });
-    
-    if (recs.length === 0) recs.push({ icon: CheckCircle2, color: GREEN, bg: "#DCFCE7", text: "Semua data aset dalam kondisi baik. Tidak ada tindakan mendesak diperlukan.", tag: "OK" });
-    return recs;
-  }, [assets, noLokasi, noPIC, overdueCount, store]);
+  // Unified canonical asset-room matching
+  const { assetRoomMap } = useMemo(() => {
+    return buildAssetRoomMap(store.assets, masterRooms);
+  }, [store.assets, masterRooms]);
 
-  const totalAcqVal  = useMemo(() => store.computeTotalAcquisitionValue(), [store]);
+  // Total Official Acquisition Value & Asset Count (Strict sum from store.assets)
+  const totalAssetsCount = store.assets.length;
+  const totalAcquisitionVal = useMemo(() => {
+    return store.computeTotalAcquisitionValue();
+  }, [store]);
 
-  const breakdownGedung = useMemo(() => {
-    const map = new Map<string, number>();
+  // Category composition for Card 2
+  const categoryStats = useMemo(() => {
+    const counts = { PM: 0, ATB: 0, ATL: 0, AL: 0 };
     store.assets.forEach(a => {
-      const g = (a.nama_gedung || a.gedung || "").trim();
-      const loc = g === "" || g === "-" ? "Belum Ada Lokasi" : g;
-      map.set(loc, (map.get(loc) || 0) + 1);
+      const k = (a.TipeAset || a.jenis_aset || "PM").toUpperCase() as keyof typeof counts;
+      if (counts[k] !== undefined) counts[k]++;
+      else counts.PM++;
     });
-    return Array.from(map.entries()).sort((a,b) => b[1] - a[1]).slice(0, 5);
+    return counts;
   }, [store.assets]);
 
-  const maintItems = useMemo(() => {
-    return store.maintenanceTickets.map(t => {
-      const asset = store.getAssetById(t.asset_id);
+  // ── Hierarchical Data Aggregation ──────────────────────────────────────────
+  // Guarantees: sum(campus.totalValue) === totalAcquisitionVal
+  //            sum(campus.totalAssets) === totalAssetsCount
+  const campusAggregates: AggregatedCampus[] = useMemo(() => {
+    // 1. Map all master rooms into AggregatedRoom structure
+    const roomMap = new Map<string, AggregatedRoom>();
+
+    masterRooms.forEach(mr => {
+      let campusName: CampusName = "Belum Dikategorikan";
+      const rawK = mr.kampus?.trim() || "";
+      if (rawK === "Kampus Cilibende") campusName = "Kampus Cilibende";
+      else if (rawK === "Kampus Gunung Gede") campusName = "Kampus Gunung Gede";
+      else if (rawK === "Kampus Pajajaran") campusName = "Kampus Pajajaran";
+      else if (rawK === "Kampus Baranangsiang") campusName = "Kampus Baranangsiang";
+      else if (rawK.includes("Lainnya")) campusName = "Kampus / Lokasi Lainnya";
+
+      const rId = String(mr.id);
+      roomMap.set(rId, {
+        id: rId,
+        sourceId: mr.sourceId,
+        kodeRuangan: mr.kodeRuangan || `R-${mr.id}`,
+        namaRuangan: mr.namaRuangan || "Ruangan Tanpa Nama",
+        namaGedung: mr.namaGedung || "Gedung Tanpa Nama",
+        kampus: campusName,
+        lantai: String(mr.level || 1),
+        kategori: mr.kategori || "Umum",
+        luas: mr.luas || 0,
+        kapasitas: mr.kapasitas || 0,
+        unitPengguna: mr.unitPengguna || mr.alamat || "Sekolah Vokasi (SV)",
+        assets: [],
+        totalValue: 0,
+        bmnCount: 0,
+        obsCount: 0,
+        kategoriBreakdown: {
+          PM: { count: 0, value: 0 },
+          ATB: { count: 0, value: 0 },
+          ATL: { count: 0, value: 0 },
+          AL: { count: 0, value: 0 },
+        },
+      });
+    });
+
+    // Special catch-all room for unmapped assets
+    const unassignedRoomId = "unassigned-bucket";
+    const unassignedRoom: AggregatedRoom = {
+      id: unassignedRoomId,
+      kodeRuangan: "UNASSIGNED",
+      namaRuangan: "Aset Belum Ditempatkan ke Ruangan Master",
+      namaGedung: "Belum Ditentukan",
+      kampus: "Belum Dikategorikan",
+      lantai: "-",
+      kategori: "Penyimpanan / Transit",
+      luas: 0,
+      kapasitas: 0,
+      unitPengguna: "Sekolah Vokasi (SV)",
+      assets: [],
+      totalValue: 0,
+      bmnCount: 0,
+      obsCount: 0,
+      kategoriBreakdown: {
+        PM: { count: 0, value: 0 },
+        ATB: { count: 0, value: 0 },
+        ATL: { count: 0, value: 0 },
+        AL: { count: 0, value: 0 },
+      },
+    };
+
+    // 2. Distribute every asset into its room
+    store.assets.forEach(a => {
+      const key = String(a.id || a.kode_tag_aset || "");
+      const matchedMaster = assetRoomMap.get(key);
+      const val = parseVal(a._harga_perolehan || a.harga_perolehan || a._nilai_buku || a.nilai_buku || "0");
+      const catKey = (a.TipeAset || a.jenis_aset || "PM").toUpperCase() as "PM" | "ATB" | "ATL" | "AL";
+      const validCat = ["PM", "ATB", "ATL", "AL"].includes(catKey) ? catKey : "PM";
+
+      let targetRoom: AggregatedRoom | undefined;
+      if (matchedMaster) {
+        targetRoom = roomMap.get(String(matchedMaster.id));
+      }
+
+      if (!targetRoom) {
+        targetRoom = unassignedRoom;
+      }
+
+      targetRoom.assets.push(a);
+      targetRoom.bmnCount++;
+      targetRoom.totalValue += val;
+      targetRoom.kategoriBreakdown[validCat].count++;
+      targetRoom.kategoriBreakdown[validCat].value += val;
+    });
+
+    // 3. Count Observasi items per room (strictly separated, never added to official totalValue)
+    const observasiList = store.observasiItems || [];
+    observasiList.forEach(obs => {
+      const obsRoomId = String(obs.ruanganId || "");
+      const targetRoom = roomMap.get(obsRoomId);
+      if (targetRoom) {
+        targetRoom.obsCount++;
+      } else {
+        unassignedRoom.obsCount++;
+      }
+    });
+
+    // 4. Group into Campuses -> Buildings -> Rooms
+    const allRooms = Array.from(roomMap.values());
+    if (unassignedRoom.bmnCount > 0 || unassignedRoom.obsCount > 0) {
+      allRooms.push(unassignedRoom);
+    }
+
+    const campusBuckets: Record<CampusName, Map<string, AggregatedRoom[]>> = {
+      "Kampus Cilibende": new Map(),
+      "Kampus Gunung Gede": new Map(),
+      "Kampus Pajajaran": new Map(),
+      "Kampus Baranangsiang": new Map(),
+      "Kampus / Lokasi Lainnya": new Map(),
+      "Belum Dikategorikan": new Map(),
+    };
+
+    allRooms.forEach(room => {
+      const camp = (campusBuckets[room.kampus as CampusName] ? room.kampus : "Belum Dikategorikan") as CampusName;
+      const bldgMap = campusBuckets[camp];
+      const gName = room.namaGedung || "Gedung Tanpa Nama";
+      if (!bldgMap.has(gName)) {
+        bldgMap.set(gName, []);
+      }
+      bldgMap.get(gName)!.push(room);
+    });
+
+    // 5. Finalize structured AggregatedCampus array
+    return CANONICAL_CAMPUSES.map(cName => {
+      const bldgMap = campusBuckets[cName];
+      const buildings: AggregatedBuilding[] = [];
+      let cTotalAssets = 0;
+      let cTotalValue = 0;
+      let cTotalRuangan = 0;
+
+      bldgMap.forEach((roomsInGedung, gName) => {
+        const bAssets = roomsInGedung.reduce((acc, r) => acc + r.bmnCount, 0);
+        const bValue = roomsInGedung.reduce((acc, r) => acc + r.totalValue, 0);
+        const bRoomsCount = roomsInGedung.length;
+
+        cTotalAssets += bAssets;
+        cTotalValue += bValue;
+        cTotalRuangan += bRoomsCount;
+
+        buildings.push({
+          namaGedung: gName,
+          kampus: cName,
+          rooms: roomsInGedung,
+          totalAssets: bAssets,
+          totalValue: bValue,
+          totalRuangan: bRoomsCount,
+        });
+      });
+
+      // Sort buildings by value descending
+      buildings.sort((a, b) => b.totalValue - a.totalValue);
+
+      const percentageValue = totalAcquisitionVal > 0 ? (cTotalValue / totalAcquisitionVal) * 100 : 0;
+      const percentageAssets = totalAssetsCount > 0 ? (cTotalAssets / totalAssetsCount) * 100 : 0;
+
+      // Extract dynamic description ONLY if present in data (do not hardcode)
+      const dynamicDesc = masterRooms.find(r => r.kampus === cName && (r as any).deskripsiKampus)?.deskripsiKampus as string | undefined;
+
       return {
-        id: t.id,
-        assetName: asset?.Nama_Barang || asset?.nama_barang || t.asset_id,
-        gedung: asset?.nama_gedung || asset?.gedung || "-",
-        ruangan: asset?.Nama_ruangan || asset?.nama_ruangan || "-",
-        durasi: t.downtime_jam,
-        status: t.status,
-        biaya: t.biaya
+        name: cName,
+        description: dynamicDesc,
+        buildings,
+        totalAssets: cTotalAssets,
+        totalValue: cTotalValue,
+        totalGedung: buildings.length,
+        totalRuangan: cTotalRuangan,
+        percentageValue,
+        percentageAssets,
       };
-    }).sort((a,b) => b.durasi - a.durasi).slice(0, 6);
-  }, [store.maintenanceTickets, store]);
+    });
+  }, [masterRooms, store.assets, assetRoomMap, store.observasiItems, totalAcquisitionVal, totalAssetsCount]);
 
-  const topBiayaAset = useMemo(() => {
-    return store.assets
-      .map(a => ({
-        id: a.id,
-        nama: a.Nama_Barang || a.nama_barang || "Aset Tanpa Nama",
-        ruangan: a.Nama_ruangan || a.nama_ruangan || "-",
-        biaya: parseInt(a._total_biaya_maintenance || "0") || 0
-      }))
-      .filter(a => a.biaya > 0)
-      .sort((a, b) => b.biaya - a.biaya)
-      .slice(0, 5);
-  }, [store.assets]);
+  // Selected Campus & Building objects
+  const activeCampusObj = useMemo(() => {
+    if (!selectedCampus) return null;
+    return campusAggregates.find(c => c.name === selectedCampus) || null;
+  }, [campusAggregates, selectedCampus]);
 
-  const datasetRows = useMemo(() => [
-    { jenis: "Peralatan & Mesin",     icon: Database,     sumber: "DataStore (PM)",  jumlah: pmCount,  pct: identitasPct, updated: "Live" },
-    { jenis: "Aset Tak Berwujud",     icon: FileText,     sumber: "DataStore (ATB)", jumlah: atbCount, pct: keuanganPct,  updated: "Live" },
-    { jenis: "Aset Tetap Lainnya",    icon: Database,     sumber: "DataStore (ATL)", jumlah: atlCount, pct: lokasiPct,    updated: "Live" },
-    { jenis: "Alat Angkutan",         icon: Database,     sumber: "DataStore (AL)",  jumlah: alCount,  pct: opnamePct,    updated: "Live" },
-    { jenis: "Lokasi & Ruangan",      icon: MapPin,       sumber: "Kolom Tambahan",  jumlah: total,    pct: lokasiPct,    updated: "Live" },
-    { jenis: "Penanggung Jawab (PIC)",icon: Users,        sumber: "Kolom Tambahan",  jumlah: total,    pct: picPct,       updated: "Live" },
-    { jenis: "Riwayat Maintenance",   icon: Wrench,       sumber: "Kolom Tambahan",  jumlah: total,    pct: maintPct,     updated: "Live" },
-    { jenis: "Stock Opname",          icon: ClipboardList,sumber: "Kolom Tambahan",  jumlah: total,    pct: opnamePct,    updated: "Live" },
-  ].map(r => ({ ...r, status: pctStatus(r.pct) as "Lengkap" | "Perlu Verifikasi" | "Belum Tersedia" | "Sebagian" })),
-    [pmCount, atbCount, atlCount, alCount, total, identitasPct, keuanganPct, lokasiPct, picPct, maintPct, opnamePct],
-  );
+  const activeBuildingObj = useMemo(() => {
+    if (!activeCampusObj || !selectedBuilding) return null;
+    return activeCampusObj.buildings.find(b => b.namaGedung === selectedBuilding) || null;
+  }, [activeCampusObj, selectedBuilding]);
+
+  // Filtered & sorted rooms for Level 3
+  const displayedRooms = useMemo(() => {
+    if (!activeBuildingObj) return [];
+    let list = [...activeBuildingObj.rooms];
+
+    if (roomSearchQuery.trim()) {
+      const q = roomSearchQuery.toLowerCase().trim();
+      list = list.filter(r =>
+        r.namaRuangan.toLowerCase().includes(q) ||
+        r.kodeRuangan.toLowerCase().includes(q) ||
+        r.kategori.toLowerCase().includes(q)
+      );
+    }
+
+    list.sort((a, b) => {
+      if (roomSortBy === "nilai-desc") return b.totalValue - a.totalValue;
+      if (roomSortBy === "nilai-asc") return a.totalValue - b.totalValue;
+      if (roomSortBy === "aset-desc") return b.bmnCount - a.bmnCount;
+      if (roomSortBy === "aset-asc") return a.bmnCount - b.bmnCount;
+      if (roomSortBy === "nama-asc") return a.namaRuangan.localeCompare(b.namaRuangan);
+      return 0;
+    });
+
+    return list;
+  }, [activeBuildingObj, roomSearchQuery, roomSortBy]);
+
+  // Filtered assets inside detail drawer (Level 4)
+  const detailRoomFilteredAssets = useMemo(() => {
+    if (!detailRoom) return [];
+    let list = detailRoom.assets;
+    if (assetSearchQuery.trim()) {
+      const q = assetSearchQuery.toLowerCase().trim();
+      list = list.filter(a =>
+        (a.Nama_Barang || a.nama_barang || "").toLowerCase().includes(q) ||
+        (a.kode_tag_aset || a.id || "").toLowerCase().includes(q) ||
+        (String((a as any).nup || (a as any).NUP || "")).toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [detailRoom, assetSearchQuery]);
+
+  const totalAssetPages = Math.max(1, Math.ceil(detailRoomFilteredAssets.length / pageSize));
+  const pagedDetailAssets = useMemo(() => {
+    const start = (assetPage - 1) * pageSize;
+    return detailRoomFilteredAssets.slice(start, start + pageSize);
+  }, [detailRoomFilteredAssets, assetPage, pageSize]);
+
+  // Observasi items for detail room
+  const detailRoomObsItems = useMemo(() => {
+    if (!detailRoom) return [];
+    return (store.observasiItems || []).filter(o =>
+      String(o.ruanganId) === String(detailRoom.id) ||
+      (o.namaRuangan && detailRoom.namaRuangan && o.namaRuangan.trim().toLowerCase() === detailRoom.namaRuangan.trim().toLowerCase())
+    );
+  }, [detailRoom, store.observasiItems]);
+
+  // Header dynamic greeting & name
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam";
+  const user = store.currentUser || (userProfile?.nama ? userProfile : null);
+  const rawUserName = user?.nama;
+  const formattedGreeting = rawUserName
+    ? `${greeting}, ${rawUserName.endsWith(".") ? rawUserName : `${rawUserName}.`}`
+    : greeting;
+
+  const formattedDate = useMemo(() => {
+    return new Date().toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+  }, []);
+
+  // ── GUEST MODE: Show generic greeting and locked state without data ──────────
+  if (!store.currentUser) {
+    return (
+      <main className="flex-1 overflow-y-auto bg-slate-50 min-w-0 font-sans">
+        {topBar}
+
+        <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-7 min-w-0 max-w-7xl mx-auto">
+          {/* Header with generic greeting without name */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[11px] sm:text-xs font-bold tracking-wider uppercase text-slate-400">
+                EXECUTIVE ASSET OVERVIEW / SEKOLAH VOKASI IPB
+              </p>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight">
+                Overview aset
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 font-medium">
+                {formattedGreeting}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto shrink-0">
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200/90 text-xs font-medium text-slate-600 shadow-2xs">
+                <Calendar size={14} className="text-slate-400 shrink-0" />
+                <span>{formattedDate}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Locked State Container — zero data, zero tables, zero API calls */}
+          <div className="w-full bg-white border border-slate-200/80 rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.04)] p-8 sm:p-12 flex flex-col items-center text-center my-6">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-800 mb-5 border border-slate-200/60 shadow-xs">
+              <Lock size={32} strokeWidth={2.2} className="text-[#061A33]" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mb-2">
+              Akses Terbatas
+            </h2>
+            <p className="text-sm font-medium text-slate-600 mb-2">
+              Silakan masuk untuk mengakses fitur ini
+            </p>
+            <p className="text-xs text-slate-400 max-w-md mb-8 leading-relaxed">
+              Data inventaris, rekapitulasi nilai perolehan aset, dan pemetaan kampus hanya dapat diakses oleh civitas akademika Sekolah Vokasi IPB yang telah terverifikasi.
+            </p>
+            <button
+              onClick={() => onOpenAuth?.("login")}
+              className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#061A33] hover:bg-[#022B5F] text-white text-sm font-semibold transition-all shadow-sm hover:shadow cursor-pointer active:scale-[0.99]"
+            >
+              <LogIn size={16} />
+              <span>Masuk</span>
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
+    <main className="flex-1 overflow-y-auto bg-slate-50 min-w-0">
       {topBar}
-      <div className="px-8 py-7 space-y-6">
 
-        {/* ── Header ── */}
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">{greeting}, {userFirstName}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Ringkasan kesiapan data sistem aset Sekolah Vokasi IPB —{" "}
-            {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </p>
-        </div>
+      <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-7 min-w-0 max-w-7xl mx-auto">
 
-        {/* ── KPI Cards ── */}
-        <div className="grid grid-cols-6 gap-4">
-          <KpiCard
-            label="Total Nilai Perolehan"
-            value={fmtRupiahFull(totalAcqVal)}
-            sub="Akumulasi nilai perolehan seluruh aset (PM + ATB + ATL + AL)"
-            icon={CircleDollarSign}
-            iconColor="#3B82F6"
-            iconBg="#EFF6FF"
-          />
-          <KpiCard
-            label="Total Data Aset"
-            value={total.toLocaleString("id-ID")}
-            sub={`${verifiedCount.toLocaleString("id-ID")} dari ${total.toLocaleString("id-ID")} aset terverifikasi`}
-            icon={Database}
-            iconColor="#111827"
-            iconBg="#F3F4F6"
-          />
-          <KpiCard
-            label="Data Lengkap"
-            value={lengkap.toLocaleString("id-ID")}
-            sub={`${total ? Math.round(lengkap / total * 100) : 0}% dari total`}
-            icon={CheckCircle2}
-            iconColor="#16A34A"
-            iconBg="#DCFCE7"
-          />
-          <KpiCard
-            label="Perlu Verifikasi"
-            value={perluVerif.toLocaleString("id-ID")}
-            sub={`${total ? Math.round(perluVerif / total * 100) : 0}% dari total`}
-            icon={AlertTriangle}
-            iconColor="#D97706"
-            iconBg="#FEF3C7"
-          />
-          <KpiCard
-            label="Tanpa Lokasi"
-            value={noLokasi.toLocaleString("id-ID")}
-            sub={`${total ? Math.round(noLokasi / total * 100) : 0}% belum memiliki lokasi`}
-            icon={MapPin}
-            iconColor="#EF4444"
-            iconBg="#FEE2E2"
-          />
-          <KpiCard
-            label="Tanpa PIC"
-            value={noPIC.toLocaleString("id-ID")}
-            sub={`${total ? Math.round(noPIC / total * 100) : 0}% belum ada penanggung jawab`}
-            icon={Users}
-            iconColor="#7C3AED"
-            iconBg="#EDE9FE"
-          />
-        </div>
-
-        {/* ── Kesiapan Data Sistem + Distribusi Kondisi Aset ── */}
-        <div className="grid grid-cols-5 gap-5">
-          {/* Kesiapan Data — 3 cols */}
-          <div className="col-span-3 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <BarChart2 size={16} className="text-gray-500" />
-                <p className="text-sm font-semibold text-gray-800">Kesiapan Data Sistem</p>
-              </div>
-              <span className="text-[10px] font-semibold text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">Dihitung Sistem</span>
-            </div>
-            <div className="space-y-3.5">
-              <ProgressRow label="Identitas Aset"       pct={identitasPct}  count={Math.round(identitasPct/100*total)}  total={total} />
-              <ProgressRow label="Kelengkapan Keuangan" pct={keuanganPct}   count={Math.round(keuanganPct/100*total)}   total={total} />
-              <ProgressRow label="Lokasi & Ruangan"     pct={lokasiPct}     count={Math.round(lokasiPct/100*total)}     total={total} />
-              <ProgressRow label="Penanggung Jawab"     pct={picPct}        count={Math.round(picPct/100*total)}        total={total} />
-              <ProgressRow label="Stock Opname"         pct={opnamePct}     count={Math.round(opnamePct/100*total)}     total={total} />
-              <ProgressRow label="Riwayat Maintenance"  pct={maintPct}      count={Math.round(maintPct/100*total)}      total={total} />
-            </div>
-            <div className="mt-4 pt-3 border-t border-gray-100 flex items-center gap-1.5 text-[10px] text-gray-400">
-              <Info size={11} />
-              Persentase dihitung otomatis berdasarkan kelengkapan kolom wajib di setiap dimensi data.
-            </div>
+        {/* ── 1. HEADER (Figma Aligned) ───────────────────────────────────────── */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[11px] sm:text-xs font-bold tracking-wider uppercase text-slate-400">
+              EXECUTIVE ASSET OVERVIEW / SEKOLAH VOKASI IPB
+            </p>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight">
+              Overview aset
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">
+              {formattedGreeting}
+            </p>
           </div>
 
-          {/* Distribusi Kondisi Aset — 2 cols */}
-          <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col">
-            <p className="text-sm font-semibold text-gray-800 mb-4">Distribusi Kondisi Aset</p>
-            <div className="flex h-4 rounded-full overflow-hidden gap-0.5">
-              {kondisiList.map(c => (
-                <div key={c.label} className="h-full" style={{ width: `${c.pct}%`, backgroundColor: c.color }} />
-              ))}
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto shrink-0">
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200/90 text-xs font-medium text-slate-600 shadow-2xs">
+              <Calendar size={14} className="text-slate-400 shrink-0" />
+              <span>{formattedDate}</span>
             </div>
-            <div className="flex flex-col gap-2 mt-4 flex-1 overflow-y-auto max-h-[160px] pr-2">
-              {kondisiList.map(l => (
-                <div key={l.label} className="flex items-center gap-2.5 py-1 border-b border-gray-50 last:border-0">
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
-                  <span className="text-xs text-gray-500 flex-1 truncate">{l.label}</span>
-                  <span className="text-xs font-semibold text-gray-700">{l.count.toLocaleString("id-ID")}</span>
-                  <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(l.pct)}%</span>
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200/80 text-xs font-semibold text-emerald-700 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span>Data Realtime Terkini</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 2. DUA KARTU UTAMA (HERO KPI CARDS) ──────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
+
+          {/* Kartu 1: Total Nilai Perolehan (Biru Besar) */}
+          <div className="bg-[#1D63ED] rounded-2xl p-6 sm:p-7 text-white shadow-sm flex flex-col justify-between relative overflow-hidden transition-all duration-200 hover:shadow-md">
+            <div>
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-100">
+                    METRIK FINANSIAL RESMI
+                  </span>
+                  <h2 className="text-sm font-medium text-white/95 mt-0.5">
+                    Total Nilai Perolehan
+                  </h2>
                 </div>
-              ))}
-            </div>
-            <div className="flex-1" />
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <p className="text-[10px] text-gray-400">Total {total.toLocaleString("id-ID")} aset terdaftar — live dari DataStore</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Table Status Dataset ── */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <Database size={15} className="text-gray-500" />
-              <p className="text-sm font-semibold text-gray-800">Status Dataset</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <RefreshCw size={12} /> Refresh
-              </button>
-              <button className="flex items-center gap-1.5 text-xs text-white bg-gray-900 px-3 py-1.5 rounded-lg hover:bg-black transition-colors">
-                <Download size={12} /> Export
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Jenis Data</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Sumber Data</th>
-                  <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Jumlah Record</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Kelengkapan</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Terakhir Diperbarui</th>
-                  <th className="text-right px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {datasetRows.map((row, i) => {
-                  const barColor = row.pct >= 80 ? GREEN : row.pct >= 50 ? AMBER : RED;
-                  return (
-                    <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                            <row.icon size={13} className="text-gray-500" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-800">{row.jenis}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className="text-xs text-gray-500">{row.sumber}</span>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <span className="text-sm font-semibold text-gray-700">{row.jumlah.toLocaleString("id-ID")}</span>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2 min-w-[100px]">
-                          <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${row.pct}%`, backgroundColor: barColor }} />
-                          </div>
-                          <span className="text-xs font-semibold text-gray-600 w-8 shrink-0">{row.pct}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <StatusBadge status={row.status} />
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className="text-xs text-gray-500">{row.updated}</span>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <button className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition-colors">
-                          <Eye size={13} /> Lihat
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* ── Bottom Row: Rekomendasi + Aktivitas Terbaru ── */}
-        <div className="grid grid-cols-5 gap-5">
-          {/* Rekomendasi Sistem — 3 cols */}
-          <div className="col-span-3 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Lightbulb size={15} className="text-amber-500" />
-                <p className="text-sm font-semibold text-gray-800">Rekomendasi Sistem</p>
+                <ArrowUpRight size={20} className="text-white/80 shrink-0" />
               </div>
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Rekomendasi Sistem</span>
+
+              <div className="mt-5 sm:mt-6">
+                <div
+                  className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-none"
+                  title={fmtRupiahFull(totalAcquisitionVal)}
+                >
+                  {fmtRupiahCompact(totalAcquisitionVal)}
+                </div>
+                <div className="text-xs sm:text-sm font-mono text-blue-100/90 mt-2 font-medium">
+                  {fmtRupiahFull(totalAcquisitionVal)}
+                </div>
+                <p className="text-xs text-blue-100/80 mt-3 font-normal leading-relaxed">
+                  Akumulasi nilai perolehan aset resmi untuk kelompok PM, ATB, ATL dan AL.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2.5">
-              {(expandRekomen ? rekomendasi : rekomendasi.slice(0, 3)).map((r, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: r.bg }}>
-                    <r.icon size={13} style={{ color: r.color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-700 leading-relaxed">{r.text}</p>
-                  </div>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0" style={{ backgroundColor: r.bg, color: r.color }}>
-                    {r.tag}
+
+            <div className="mt-6 pt-4 border-t border-blue-400/30 flex items-center justify-between text-xs text-white">
+              <div className="flex items-center gap-1.5 font-medium">
+                <CheckCircle2 size={15} className="text-blue-200 shrink-0" />
+                <span>Nilai Resmi Buku BMN</span>
+              </div>
+              <span className="font-mono text-blue-100">100% Tercakup</span>
+            </div>
+          </div>
+
+          {/* Kartu 2: Total Data Aset (Putih) */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-7 shadow-xs flex flex-col justify-between transition-all duration-200 hover:shadow-md">
+            <div>
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    POPULASI INVENTARIS
+                  </span>
+                  <h2 className="text-sm font-medium text-slate-600 mt-0.5">
+                    Total Data Aset
+                  </h2>
+                </div>
+                <div className="text-blue-600 p-1">
+                  <Layers size={22} />
+                </div>
+              </div>
+
+              <div className="mt-5 sm:mt-6">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-none">
+                    {totalAssetsCount.toLocaleString("id-ID")}
+                  </span>
+                  <span className="text-sm sm:text-base font-normal text-slate-500">
+                    Unit Aset
                   </span>
                 </div>
-              ))}
+                <p className="text-xs text-slate-500 mt-3 font-normal leading-relaxed">
+                  Aset resmi terdaftar, termasuk sarana, prasarana, mesin, dan kendaraan.
+                </p>
+              </div>
             </div>
-            {rekomendasi.length > 3 && (
-              <button
-                onClick={() => setExpandRekomen(v => !v)}
-                className="mt-3 w-full text-xs text-gray-500 hover:text-gray-800 transition-colors py-2 border border-dashed border-gray-200 rounded-lg"
-              >
-                {expandRekomen ? "↑ Ciutkan" : `Lihat ${rekomendasi.length - 3} rekomendasi lainnya`}
-              </button>
-            )}
-          </div>
 
-          {/* Aktivitas Terbaru — 2 cols */}
-          <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-gray-800">Aktivitas Terbaru</p>
-              <button className="text-[11px] text-gray-400 hover:text-gray-700 transition-colors">Lihat semua</button>
-            </div>
-            <div className="space-y-1">
-              {recentActivities.map((a, idx) => (
-                <div key={idx} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: a.color + "1A" }}>
-                    <Database size={12} style={{ color: a.color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-800 truncate">{a.name}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">{a.action}</p>
-                  </div>
-                  <div className="text-[10px] text-gray-400 shrink-0">{a.time}</div>
+            <div>
+              <div className="border-t border-slate-100 my-4 sm:my-5" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    PM
+                  </span>
+                  <span className="text-lg sm:text-xl font-bold text-blue-600 mt-1 block">
+                    {categoryStats.PM.toLocaleString("id-ID")}
+                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Status Maintenance & Perbaikan ── */}
-        <div className="grid grid-cols-3 gap-5">
-          {/* Maintenance Overdue & Breakdown */}
-          <div className="col-span-2 space-y-5">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Wrench size={16} className="text-gray-500" />
-                  <p className="text-sm font-semibold text-gray-800">Status Perbaikan & Maintenance Overdue</p>
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    ATB
+                  </span>
+                  <span className="text-lg sm:text-xl font-bold text-blue-600 mt-1 block">
+                    {categoryStats.ATB.toLocaleString("id-ID")}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">{overdueCount} Overdue</span>
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    ATL
+                  </span>
+                  <span className="text-lg sm:text-xl font-bold text-blue-600 mt-1 block">
+                    {categoryStats.ATL.toLocaleString("id-ID")}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    AL
+                  </span>
+                  <span className="text-lg sm:text-xl font-bold text-blue-600 mt-1 block">
+                    {categoryStats.AL.toLocaleString("id-ID")}
+                  </span>
                 </div>
               </div>
-              
-              <div className="flex gap-6 mb-4">
-                <div className="flex-1">
-                  <p className="text-[11px] font-semibold text-gray-500 mb-2 uppercase tracking-wide">Histori Durasi Perbaikan</p>
-                  <div className="space-y-2">
-                    {maintItems.length === 0 ? (
-                      <div className="py-6 text-center border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
-                        <Wrench size={24} className="mx-auto text-gray-300 mb-2" />
-                        <p className="text-xs text-gray-500">Belum ada data maintenance.</p>
-                      </div>
-                    ) : maintItems.map(item => (
-                      <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg border border-gray-50 hover:bg-gray-50 transition-colors">
-                        {item.status === "Selesai" ? (
-                          <CheckSquare size={16} className="text-green-500 shrink-0" />
-                        ) : (
-                          <XSquare size={16} className="text-amber-500 shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-800 truncate">{item.assetName}</p>
-                          <p className="text-[10px] text-gray-500 truncate">{item.gedung} - {item.ruangan}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-xs font-bold text-gray-700 flex items-center gap-1"><Clock size={11} className="text-gray-400" /> {item.durasi} Jam</p>
-                          <p className="text-[10px] font-medium" style={{ color: item.status === "Selesai" ? "#16A34A" : "#D97706" }}>
-                            {item.status === "Selesai" ? "Sudah Diperbaiki" : "Belum Diperbaiki"}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* ── 3. BAGIAN LOKASI & RUANGAN ───────────────────────────────────────── */}
+        <section className="space-y-4">
+
+          {/* Section Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                Lokasi & Ruangan
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                Telusuri sebaran aset dan nilai perolehan per kampus, gedung, hingga inventaris ruangan.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: "lokasi" } }));
+              }}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-white border border-slate-200/90 hover:border-slate-300 text-slate-700 text-xs sm:text-sm font-semibold rounded-xl shadow-2xs hover:bg-slate-50 transition-colors self-start sm:self-auto min-h-[44px] cursor-pointer"
+            >
+              <span>Buka di Lokasi & Ruangan</span>
+              <ArrowUpRight size={15} />
+            </button>
+          </div>
+
+          {/* Card: Distribusi Nilai Aset per Kampus */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+              <span className="text-[11px] font-bold tracking-wider uppercase text-slate-500">
+                DISTRIBUSI NILAI ASET PER KAMPUS
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                Berdasarkan nilai perolehan resmi
+              </span>
+            </div>
+
+            {/* Segmented Progress Bar */}
+            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
+              {campusAggregates.map(c => {
+                if (c.percentageValue <= 0) return null;
+                return (
+                  <div
+                    key={c.name}
+                    style={{
+                      width: `${Math.max(c.percentageValue, 0.8)}%`,
+                      backgroundColor: CAMPUS_BAR_COLORS[c.name] || "#CBD5E1",
+                    }}
+                    className="h-full transition-all duration-300 hover:opacity-85 cursor-pointer"
+                    title={`${c.name}: ${fmtRupiahCompact(c.totalValue)} (${fmtPercent(c.percentageValue)})`}
+                    onClick={() => {
+                      setSelectedCampus(c.name);
+                      setSelectedBuilding(null);
+                    }}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Legend Items */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+              {campusAggregates.map(c => (
+                <div
+                  key={c.name}
+                  onClick={() => {
+                    setSelectedCampus(c.name);
+                    setSelectedBuilding(null);
+                  }}
+                  className="cursor-pointer group p-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: CAMPUS_BAR_COLORS[c.name] || "#94A3B8" }}
+                    />
+                    <span className="truncate">{CAMPUS_SHORT_LABELS[c.name] || c.name}</span>
+                  </div>
+                  <div className="text-sm font-bold text-slate-800 mt-1 pl-3.5">
+                    {fmtPercent(c.percentageValue)}
                   </div>
                 </div>
-                
-                <div className="w-1/3 shrink-0 border-l border-gray-100 pl-6">
-                  <p className="text-[11px] font-semibold text-gray-500 mb-2 uppercase tracking-wide">Breakdown Per Gedung</p>
-                  <div className="space-y-3">
-                    {breakdownGedung.map(([gedung, count]) => (
-                      <div key={gedung} className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Building size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600 truncate max-w-[100px]" title={gedung}>{gedung}</span>
-                        </div>
-                        <span className="text-xs font-bold text-gray-800">{count} Item</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Filter Bar: Dropdown "Semua Kampus (n)" */}
+          <div className="flex items-center justify-between relative pt-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(prev => !prev)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1D63ED] hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition-colors cursor-pointer min-h-[44px]"
+              >
+                <Building size={16} />
+                <span>{selectedCampus ? selectedCampus : `Semua Kampus (${campusAggregates.length})`}</span>
+                <ChevronDown size={15} className={`transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute left-0 top-full mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-xl z-30 py-1.5 animate-in fade-in duration-150"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCampus(null);
+                      setSelectedBuilding(null);
+                      setIsDropdownOpen(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer ${
+                      selectedCampus === null ? "text-[#1D63ED] font-bold bg-blue-50/60" : "text-slate-700"
+                    }`}
+                  >
+                    <span>Semua Kampus ({campusAggregates.length})</span>
+                    {selectedCampus === null && <CheckCircle2 size={14} className="text-[#1D63ED]" />}
+                  </button>
+                  <div className="border-t border-slate-100 my-1" />
+                  {campusAggregates.map(c => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCampus(c.name);
+                        setSelectedBuilding(null);
+                        setIsDropdownOpen(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-medium flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer ${
+                        selectedCampus === c.name ? "text-[#1D63ED] font-bold bg-blue-50/60" : "text-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: CAMPUS_BAR_COLORS[c.name] || "#94A3B8" }}
+                        />
+                        <span className="truncate">{c.name}</span>
                       </div>
-                    ))}
-                  </div>
-                  {breakdownGedung.length === 0 && (
-                    <p className="text-xs text-gray-400 italic">Tidak ada antrian perbaikan</p>
+                      <span className="text-xs text-slate-400 font-mono shrink-0 ml-2">
+                        {c.totalGedung} Gedung
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <span className="text-xs text-slate-400 font-medium hidden sm:inline">
+              Pilih kampus untuk melihat gedung
+            </span>
+          </div>
+
+          {/* ── LEVEL 1: TABEL KAMPUS / LOKASI (Figma Aligned) ────────────────── */}
+          {selectedCampus === null && (
+            <div className="space-y-4">
+              {/* Desktop & Tablet Table */}
+              <div className="hidden md:block bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <th className="py-4 px-6">KAMPUS / LOKASI</th>
+                        <th className="py-4 px-6">NILAI PEROLEHAN</th>
+                        <th className="py-4 px-6">UNIT ASET</th>
+                        <th className="py-4 px-6">GEDUNG / RUANG</th>
+                        <th className="py-4 px-6 text-right">EKSPLORASI</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {campusAggregates.map((campus, idx) => {
+                        const numStr = String(idx + 1).padStart(2, "0");
+                        return (
+                          <tr key={campus.name} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="py-5 px-6">
+                              <div className="flex items-start gap-4">
+                                <span className="text-xs font-mono font-bold text-slate-400 pt-0.5">{numStr}</span>
+                                <div>
+                                  <h3 className="text-sm font-bold text-slate-900">{campus.name}</h3>
+                                  {campus.description && (
+                                    <p className="text-xs text-slate-500 mt-1 max-w-xs">{campus.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-5 px-6">
+                              <div className="text-sm sm:text-base font-bold text-slate-900" title={fmtRupiahFull(campus.totalValue)}>
+                                {fmtRupiahCompact(campus.totalValue)}
+                              </div>
+                              <div className="text-xs font-mono text-slate-400 mt-0.5">
+                                {fmtRupiahFull(campus.totalValue)}
+                              </div>
+                              <div className="text-xs font-mono font-medium text-blue-600 mt-0.5">
+                                {fmtPercent(campus.percentageValue)} dari total nilai
+                              </div>
+                            </td>
+                            <td className="py-5 px-6">
+                              <span className="text-sm sm:text-base font-bold text-slate-900">
+                                {campus.totalAssets.toLocaleString("id-ID")}
+                              </span>
+                            </td>
+                            <td className="py-5 px-6">
+                              <div className="text-xs font-bold text-slate-800">
+                                {campus.totalGedung} Gedung
+                              </div>
+                              <div className="text-xs text-slate-400 mt-0.5">
+                                {campus.totalRuangan} Ruangan
+                              </div>
+                            </td>
+                            <td className="py-5 px-6 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCampus(campus.name);
+                                  setSelectedBuilding(null);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200/90 hover:border-blue-300 bg-white hover:bg-blue-50/50 text-blue-600 text-xs font-semibold shadow-2xs transition-all cursor-pointer min-h-[44px]"
+                              >
+                                <span>Telusuri {campus.totalGedung} Gedung</span>
+                                <ChevronRight size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Mobile Card List */}
+              <div className="md:hidden space-y-3.5">
+                {campusAggregates.map((campus, idx) => {
+                  const numStr = String(idx + 1).padStart(2, "0");
+                  return (
+                    <div key={campus.name} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5">
+                          <span className="text-xs font-mono font-bold text-slate-400 pt-0.5">{numStr}</span>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-900">{campus.name}</h3>
+                            {campus.description && (
+                              <p className="text-xs text-slate-500 mt-0.5">{campus.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-xs font-mono font-semibold text-blue-600 shrink-0">
+                          {fmtPercent(campus.percentageValue)}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 py-2 border-y border-slate-100 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">NILAI PEROLEHAN</span>
+                          <span className="font-bold text-slate-900 text-sm block mt-0.5">{fmtRupiahCompact(campus.totalValue)}</span>
+                          <span className="text-[10px] font-mono text-slate-400 block">{fmtRupiahFull(campus.totalValue)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">UNIT ASET / RUANG</span>
+                          <span className="font-bold text-slate-900 text-sm block mt-0.5">{campus.totalAssets.toLocaleString("id-ID")} unit</span>
+                          <span className="text-[10px] text-slate-500 block">{campus.totalGedung} Gedung · {campus.totalRuangan} Ruang</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCampus(campus.name);
+                          setSelectedBuilding(null);
+                        }}
+                        className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 text-blue-600 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 min-h-[44px]"
+                      >
+                        <span>Telusuri {campus.totalGedung} Gedung</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── LEVEL 2: GEDUNG LIST ──────────────────────────────────────────── */}
+          {selectedCampus !== null && selectedBuilding === null && activeCampusObj && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Breadcrumb Navigation Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCampus(null)}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-1"
+                  >
+                    <span>Semua Kampus ({campusAggregates.length})</span>
+                  </button>
+                  <ChevronRight size={14} className="text-slate-300" />
+                  <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+                    {activeCampusObj.name}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedCampus(null)}
+                  className="self-start sm:self-center px-3.5 py-1.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[40px]"
+                >
+                  <ArrowLeft size={13} />
+                  <span>Kembali ke Semua Kampus</span>
+                </button>
+              </div>
+
+              {/* Desktop Table of Buildings */}
+              <div className="hidden md:block bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      <th className="py-4 px-6">GEDUNG</th>
+                      <th className="py-4 px-6">NILAI PEROLEHAN</th>
+                      <th className="py-4 px-6">UNIT ASET</th>
+                      <th className="py-4 px-6">TOTAL RUANGAN</th>
+                      <th className="py-4 px-6 text-right">EKSPLORASI</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {activeCampusObj.buildings.map((bldg, idx) => {
+                      const numStr = String(idx + 1).padStart(2, "0");
+                      return (
+                        <tr key={bldg.namaGedung} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-5 px-6">
+                            <div className="flex items-start gap-4">
+                              <span className="text-xs font-mono font-bold text-slate-400 pt-0.5">{numStr}</span>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900">{bldg.namaGedung}</h4>
+                                <p className="text-xs text-slate-400 mt-0.5">{activeCampusObj.name}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-5 px-6">
+                            <div className="text-sm sm:text-base font-bold text-slate-900" title={fmtRupiahFull(bldg.totalValue)}>
+                              {fmtRupiahCompact(bldg.totalValue)}
+                            </div>
+                            <div className="text-xs font-mono text-slate-400 mt-0.5">
+                              {fmtRupiahFull(bldg.totalValue)}
+                            </div>
+                          </td>
+                          <td className="py-5 px-6">
+                            <span className="text-sm sm:text-base font-bold text-slate-900">
+                              {bldg.totalAssets.toLocaleString("id-ID")}
+                            </span>
+                          </td>
+                          <td className="py-5 px-6">
+                            <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-full">
+                              {bldg.totalRuangan} Ruangan
+                            </span>
+                          </td>
+                          <td className="py-5 px-6 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedBuilding(bldg.namaGedung);
+                                setRoomSearchQuery("");
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200/90 hover:border-blue-300 bg-white hover:bg-blue-50/50 text-blue-600 text-xs font-semibold shadow-2xs transition-all cursor-pointer min-h-[44px]"
+                            >
+                              <span>Telusuri {bldg.totalRuangan} Ruangan</span>
+                              <ChevronRight size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card List of Buildings */}
+              <div className="md:hidden space-y-3.5">
+                {activeCampusObj.buildings.map((bldg, idx) => {
+                  const numStr = String(idx + 1).padStart(2, "0");
+                  return (
+                    <div key={bldg.namaGedung} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5">
+                          <span className="text-xs font-mono font-bold text-slate-400 pt-0.5">{numStr}</span>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900">{bldg.namaGedung}</h4>
+                            <p className="text-xs text-slate-400">{activeCampusObj.name}</p>
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                          {bldg.totalRuangan} Ruang
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 py-2 border-y border-slate-100 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">NILAI PEROLEHAN</span>
+                          <span className="font-bold text-slate-900 text-sm block mt-0.5">{fmtRupiahCompact(bldg.totalValue)}</span>
+                          <span className="text-[10px] font-mono text-slate-400 block">{fmtRupiahFull(bldg.totalValue)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">UNIT ASET</span>
+                          <span className="font-bold text-slate-900 text-sm block mt-0.5">{bldg.totalAssets.toLocaleString("id-ID")} unit</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBuilding(bldg.namaGedung);
+                          setRoomSearchQuery("");
+                        }}
+                        className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 text-blue-600 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 min-h-[44px]"
+                      >
+                        <span>Telusuri {bldg.totalRuangan} Ruangan</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── LEVEL 3: RUANGAN LIST ─────────────────────────────────────────── */}
+          {selectedCampus !== null && selectedBuilding !== null && activeBuildingObj && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Breadcrumb Navigation Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCampus(null);
+                      setSelectedBuilding(null);
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                  >
+                    Semua Kampus
+                  </button>
+                  <ChevronRight size={14} className="text-slate-300" />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBuilding(null)}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                  >
+                    {activeCampusObj?.name}
+                  </button>
+                  <ChevronRight size={14} className="text-slate-300" />
+                  <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+                    {activeBuildingObj.namaGedung}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedBuilding(null)}
+                  className="self-start sm:self-center px-3.5 py-1.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[40px]"
+                >
+                  <ArrowLeft size={13} />
+                  <span>Kembali ke Daftar Gedung</span>
+                </button>
+              </div>
+
+              {/* Search & Sort Controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                <div className="relative flex-1 max-w-md">
+                  <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama ruangan, kode ruangan, kategori..."
+                    value={roomSearchQuery}
+                    onChange={e => setRoomSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-8 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1D63ED] focus:bg-white font-medium text-slate-800 placeholder:text-slate-400 min-h-[44px]"
+                  />
+                  {roomSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setRoomSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={14} />
+                    </button>
                   )}
                 </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Top Biaya Maintenance */}
-          <div className="col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp size={16} className="text-gray-500" />
-              <p className="text-sm font-semibold text-gray-800">Top Biaya Maintenance</p>
-            </div>
-            <div className="space-y-3">
-              {topBiayaAset.length === 0 ? (
-                <div className="py-10 text-center border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
-                  <TrendingUp size={24} className="mx-auto text-gray-300 mb-2" />
-                  <p className="text-xs text-gray-500">Belum ada data maintenance.</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <ArrowUpDown size={14} className="text-slate-400" />
+                  <span className="text-xs font-semibold text-slate-600">Urutkan:</span>
+                  <select
+                    value={roomSortBy}
+                    onChange={e => setRoomSortBy(e.target.value as any)}
+                    className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-[#1D63ED] cursor-pointer min-h-[44px]"
+                  >
+                    <option value="nilai-desc">Nilai Aset Tertinggi</option>
+                    <option value="nilai-asc">Nilai Aset Terendah</option>
+                    <option value="aset-desc">Jumlah Aset Terbanyak</option>
+                    <option value="aset-asc">Jumlah Aset Tersedikit</option>
+                    <option value="nama-asc">Nama Ruangan (A-Z)</option>
+                  </select>
                 </div>
-              ) : topBiayaAset.map((a, i) => (
-                <div key={a.id} className="p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-snug">{a.nama}</p>
-                    <span className="text-[10px] font-bold text-gray-400 mt-0.5 shrink-0">#{i + 1}</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-1">
-                      <MapPin size={11} className="text-gray-400" />
-                      <span className="text-[10px] text-gray-500 truncate max-w-[90px]">{a.ruangan}</span>
-                    </div>
-                    <span className="text-xs font-bold text-red-600">{fmtRupiahShort(a.biaya)}</span>
-                  </div>
+              </div>
+
+              {/* Rooms View */}
+              {displayedRooms.length === 0 ? (
+                <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center space-y-2">
+                  <Building size={32} className="text-slate-300 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-700">Tidak ada ruangan yang cocok</h4>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    {roomSearchQuery
+                      ? `Tidak ditemukan ruangan dengan kata kunci "${roomSearchQuery}".`
+                      : "Belum ada ruangan yang tercatat di gedung ini."}
+                  </p>
                 </div>
-              ))}
+              ) : (
+                <>
+                  {/* Desktop Table */}
+                  <div className="hidden md:block bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          <th className="py-4 px-6">KODE & NAMA RUANGAN</th>
+                          <th className="py-4 px-6">LANTAI / KATEGORI</th>
+                          <th className="py-4 px-6">NILAI PEROLEHAN</th>
+                          <th className="py-4 px-6">UNIT ASET</th>
+                          <th className="py-4 px-6 text-right">AKSI</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {displayedRooms.map(room => {
+                          const hasAssets = room.bmnCount > 0;
+                          return (
+                            <tr key={room.id} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="py-4 px-6">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                      {room.kodeRuangan}
+                                    </span>
+                                    {room.obsCount > 0 && (
+                                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                        +{room.obsCount} Observasi
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h5 className="text-sm font-bold text-slate-900">{room.namaRuangan}</h5>
+                                </div>
+                              </td>
+                              <td className="py-4 px-6">
+                                <div className="text-xs font-semibold text-slate-700">
+                                  {room.lantai === "B1" ? "Basement" : `Lantai ${room.lantai}`}
+                                </div>
+                                <div className="text-xs text-slate-400 mt-0.5">{room.kategori}</div>
+                              </td>
+                              <td className="py-4 px-6">
+                                <div className="text-sm font-bold text-slate-900" title={fmtRupiahFull(room.totalValue)}>
+                                  {hasAssets ? fmtRupiahCompact(room.totalValue) : "Rp 0"}
+                                </div>
+                                <div className="text-xs font-mono text-slate-400 mt-0.5">
+                                  {fmtRupiahFull(room.totalValue)}
+                                </div>
+                              </td>
+                              <td className="py-4 px-6">
+                                {hasAssets ? (
+                                  <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg">
+                                    {room.bmnCount.toLocaleString("id-ID")} Unit Aset
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">
+                                    Belum ada aset
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-4 px-6 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailRoom(room)}
+                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200/90 hover:border-blue-300 bg-white hover:bg-blue-50/50 text-blue-600 text-xs font-semibold shadow-2xs transition-all cursor-pointer min-h-[44px]"
+                                >
+                                  <span>Detail Ruangan</span>
+                                  <ChevronRight size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards */}
+                  <div className="md:hidden space-y-3.5">
+                    {displayedRooms.map(room => {
+                      const hasAssets = room.bmnCount > 0;
+                      return (
+                        <div key={room.id} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                  {room.kodeRuangan}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
+                                  {room.lantai === "B1" ? "Basement" : `Lantai ${room.lantai}`}
+                                </span>
+                                {room.obsCount > 0 && (
+                                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                    +{room.obsCount} Obs
+                                  </span>
+                                )}
+                              </div>
+                              <h5 className="text-sm font-bold text-slate-900 mt-1">{room.namaRuangan}</h5>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 py-2 border-y border-slate-100 text-xs">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-medium block">NILAI PEROLEHAN</span>
+                              <span className="font-bold text-slate-900 text-sm block mt-0.5">
+                                {hasAssets ? fmtRupiahCompact(room.totalValue) : "Rp 0"}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-400 block">{fmtRupiahFull(room.totalValue)}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-medium block">UNIT ASET</span>
+                              <span className="font-bold text-slate-900 text-sm block mt-0.5">
+                                {room.bmnCount.toLocaleString("id-ID")} unit
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setDetailRoom(room)}
+                            className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 text-blue-600 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 min-h-[44px]"
+                          >
+                            <span>Detail Ruangan</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        </div>
+          )}
+
+        </section>
+
+        {/* ── 4. FOOTER (Figma Aligned) ────────────────────────────────────────── */}
+        <footer className="pt-6 pb-8 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <span className="font-semibold uppercase tracking-wider">
+            SEKOLAH VOKASI IPB UNIVERSITY
+          </span>
+          <span>
+            Sumber nilai: Buku BMN · 4 kategori aset
+          </span>
+        </footer>
 
       </div>
+
+      {/* ── 5. LEVEL 4: DETAIL RUANGAN (SLIDE-OVER / BOTTOM SHEET) ─────────────── */}
+      {detailRoom && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop blur */}
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity animate-in fade-in duration-150"
+            onClick={() => setDetailRoom(null)}
+          />
+
+          <div className="fixed inset-y-0 right-0 max-w-xl w-full bg-white shadow-2xl flex flex-col z-50 animate-in slide-in-from-right duration-200 sm:rounded-l-2xl">
+
+            {/* Drawer Header */}
+            <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/70 flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-800 px-2 py-0.5 rounded">
+                    {detailRoom.kodeRuangan}
+                  </span>
+                  <span className="text-[10px] font-bold bg-blue-100 text-[#1D63ED] px-2 py-0.5 rounded-full">
+                    {detailRoom.kategori}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                    {detailRoom.lantai === "B1" ? "Basement" : `Lantai ${detailRoom.lantai}`}
+                  </span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 leading-snug">
+                  {detailRoom.namaRuangan}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium truncate">
+                  {detailRoom.namaGedung} · {detailRoom.kampus}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDetailRoom(null)}
+                className="p-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 rounded-xl transition-colors cursor-pointer shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="Tutup Detail Ruangan"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Drawer Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+
+              {/* Highlight Box: Total Nilai Aset Ruangan */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/50 border border-blue-200/90 shadow-xs space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900">
+                  Total Nilai Aset Resmi di Ruangan Ini
+                </span>
+                <div className="text-2xl sm:text-3xl font-black text-[#1D63ED] tracking-tight">
+                  {detailRoom.bmnCount > 0 ? fmtRupiahFull(detailRoom.totalValue) : "Rp 0"}
+                </div>
+                <div className="flex items-center justify-between text-xs text-blue-900/80 pt-1 font-semibold">
+                  <span>Populasi Resmi: {detailRoom.bmnCount} Unit Aset BMN</span>
+                  <span className="font-mono">{fmtRupiahCompact(detailRoom.totalValue)}</span>
+                </div>
+              </div>
+
+              {/* Room Metadata */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">Luas Ruangan</span>
+                  <span className="font-bold text-slate-800">{detailRoom.luas > 0 ? `${detailRoom.luas} m²` : "-"}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">Kapasitas</span>
+                  <span className="font-bold text-slate-800">{detailRoom.kapasitas > 0 ? `${detailRoom.kapasitas} orang` : "-"}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-[10px] text-slate-400 font-bold block">Unit Pengguna</span>
+                  <span className="font-bold text-slate-800 truncate block" title={detailRoom.unitPengguna}>
+                    {detailRoom.unitPengguna || "Sekolah Vokasi (SV)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Rincian Per Kategori Aset */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Rincian Aset Berdasarkan Kategori
+                </h4>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {[
+                    { key: "PM", title: "Peralatan & Mesin", data: detailRoom.kategoriBreakdown.PM, color: "text-blue-700 bg-blue-50 border-blue-200" },
+                    { key: "ATB", title: "Aset Tak Berwujud", data: detailRoom.kategoriBreakdown.ATB, color: "text-indigo-700 bg-indigo-50 border-indigo-200" },
+                    { key: "ATL", title: "Aset Tetap Lainnya", data: detailRoom.kategoriBreakdown.ATL, color: "text-purple-700 bg-purple-50 border-purple-200" },
+                    { key: "AL", title: "Alat Angkutan", data: detailRoom.kategoriBreakdown.AL, color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+                  ].map(cat => (
+                    <div key={cat.key} className={`p-3 rounded-xl border ${cat.color} space-y-1`}>
+                      <div className="flex items-center justify-between text-[11px] font-extrabold">
+                        <span>{cat.key} ({cat.data.count})</span>
+                        <span className="text-[10px] font-normal">{cat.title}</span>
+                      </div>
+                      <div className="text-xs font-black text-slate-900">
+                        {fmtRupiahCompact(cat.data.value)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Info Temuan Observasi (STRICTLY SEPARATED, NEVER ADDED TO OFFICIAL VALUE) */}
+              <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                  <Info size={14} className="text-amber-600 shrink-0" />
+                  <span>Temuan Observasi Lapangan: {detailRoomObsItems.length} Item</span>
+                </div>
+                <p className="text-[11px] text-amber-900/80 leading-relaxed font-medium">
+                  Nilai dari hasil observasi lapangan dipisahkan sebagai catatan audit fisik ruangan dan <strong>tidak digabungkan</strong> ke dalam nilai perolehan resmi BMN.
+                </p>
+                {detailRoomObsItems.length > 0 && (
+                  <div className="mt-2 space-y-1 max-h-28 overflow-y-auto pr-1">
+                    {detailRoomObsItems.map((obs, idx) => (
+                      <div key={obs.id || idx} className="flex items-center justify-between text-[11px] bg-white p-1.5 rounded border border-amber-200/60">
+                        <span className="font-semibold text-slate-800 truncate pr-2">{obs.namaBarang}</span>
+                        <span className="font-bold text-amber-700 shrink-0 text-[10px]">
+                          {obs.kondisi || "Baik"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Daftar Aset di Ruangan Ini (Search & Paginated) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Daftar Aset di Ruangan Ini ({detailRoom.bmnCount})
+                  </h4>
+                  {detailRoomFilteredAssets.length > 0 && (
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      Hal {assetPage} dari {totalAssetPages}
+                    </span>
+                  )}
+                </div>
+
+                {/* Filter search input */}
+                {detailRoom.bmnCount > 0 && (
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari nama barang atau kode tag..."
+                      value={assetSearchQuery}
+                      onChange={e => {
+                        setAssetSearchQuery(e.target.value);
+                        setAssetPage(1);
+                      }}
+                      className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-[#1D63ED] font-medium text-slate-800 min-h-[44px]"
+                    />
+                  </div>
+                )}
+
+                {detailRoom.bmnCount === 0 ? (
+                  <div className="p-8 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-center space-y-1.5">
+                    <Package size={24} className="text-slate-300 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700">Belum ada aset di ruangan ini</p>
+                    <p className="text-[11px] text-slate-400">
+                      Ruangan ini telah terdaftar di sistem master ruangan, namun belum ada aset BMN yang dialokasikan.
+                    </p>
+                  </div>
+                ) : detailRoomFilteredAssets.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-lg">
+                    Tidak ada aset yang cocok dengan pencarian "{assetSearchQuery}".
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-black uppercase">
+                            <th className="px-3 py-2 w-8 text-center">No</th>
+                            <th className="px-3 py-2">Nama Barang & Kode</th>
+                            <th className="px-3 py-2 text-center">Kondisi</th>
+                            <th className="px-3 py-2 text-right">Nilai</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {pagedDetailAssets.map((asset, idx) => {
+                            const rowIdx = (assetPage - 1) * pageSize + idx + 1;
+                            const assetVal = parseVal(asset._harga_perolehan || asset.harga_perolehan || asset._nilai_buku || asset.nilai_buku || "0");
+                            const cond = asset.Kondisi || asset.kondisi || "Baik";
+                            const isRusak = cond.toLowerCase().includes("rusak");
+                            return (
+                              <tr key={asset.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="px-3 py-2.5 text-center font-mono text-[11px] text-slate-400">{rowIdx}</td>
+                                <td className="px-3 py-2.5">
+                                  <div className="font-extrabold text-slate-800 line-clamp-1" title={asset.Nama_Barang || asset.nama_barang}>
+                                    {asset.Nama_Barang || asset.nama_barang}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                    <span>{asset.kode_tag_aset || asset.id}</span>
+                                    {((asset as any).nup || (asset as any).NUP) && (
+                                      <span>· NUP: {(asset as any).nup || (asset as any).NUP}</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    isRusak ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                  }`}>
+                                    {cond}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900" title={fmtRupiahFull(assetVal)}>
+                                  {fmtRupiahCompact(assetVal)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalAssetPages > 1 && (
+                      <div className="flex items-center justify-between pt-2">
+                        <button
+                          type="button"
+                          disabled={assetPage <= 1}
+                          onClick={() => setAssetPage(p => Math.max(1, p - 1))}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px]"
+                        >
+                          <ChevronLeft size={13} />
+                          <span>Sebelumnya</span>
+                        </button>
+
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          {assetPage} / {totalAssetPages}
+                        </span>
+
+                        <button
+                          type="button"
+                          disabled={assetPage >= totalAssetPages}
+                          onClick={() => setAssetPage(p => Math.min(totalAssetPages, p + 1))}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px]"
+                        >
+                          <span>Selanjutnya</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Drawer Footer (Read-Only notice & actions) */}
+            <div className="p-4 sm:p-5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                <CheckCircle2 size={13} className="text-emerald-600" /> Mode Peninjauan (Read-Only)
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailRoom(null);
+                    window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: "lokasi" } }));
+                  }}
+                  className="px-3 py-2 text-xs font-bold text-[#1D63ED] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1 min-h-[44px]"
+                >
+                  <span>Buka di Lokasi & Ruangan</span>
+                  <ExternalLink size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailRoom(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl transition-colors cursor-pointer min-h-[44px]"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }

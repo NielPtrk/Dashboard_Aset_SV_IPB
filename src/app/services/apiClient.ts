@@ -2,124 +2,119 @@ import axios from "axios";
 
 // ─── Environment config ────────────────────────────────────────────────────────
 // In production, set VITE_API_URL to the NestJS backend URL.
-// Falls back to localhost:3001 for local development.
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001/api";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1"
+    ? `${window.location.origin}/api`
+    : "http://localhost:3001/api");
 
 // ─── Axios instance ────────────────────────────────────────────────────────────
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 300000, // Increased to 5 minutes to allow large 20k+ row Excel imports
+  timeout: 300000, // 5 minutes to allow large 20k+ row Excel imports
   headers: { "Content-Type": "application/json" },
 });
 
-// ─── Auto session token helper ────────────────────────────────────────────────
-let authPromise: Promise<string | null> | null = null;
-
+// ─── Auth token helper (NEVER silent login with default mock credentials) ───────
 export async function ensureAuthToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-
-  const existing = localStorage.getItem("access_token");
-  if (existing) return existing;
-
-  // If user explicitly logged out, do not silently re-authenticate
-  if (localStorage.getItem("user_logged_out") === "true") {
+  const token = localStorage.getItem("access_token");
+  if (!token || localStorage.getItem("user_logged_out") === "true") {
     return null;
   }
-
-  // Deduplicate concurrent login requests
-  if (!authPromise) {
-    authPromise = (async () => {
-      try {
-        let res;
-        try {
-          res = await axios.post(`${API_BASE_URL}/auth/login`, {
-            email: "othnielpatrick@apps.ipb.ac.id",
-            password: "admin123",
-            turnstileToken: "turnstile-dev-token-bypass",
-          });
-        } catch {
-          res = await axios.post(`${API_BASE_URL}/auth/login`, {
-            email: "othniel.patrick@apps.ipb.ac.id",
-            password: "admin123",
-            turnstileToken: "turnstile-dev-token-bypass",
-          });
-        }
-        const data = res.data;
-        if (data?.access_token) {
-          localStorage.setItem("access_token", data.access_token);
-          if (data.refresh_token) {
-            localStorage.setItem("refresh_token", data.refresh_token);
-          }
-          if (data.user) {
-            localStorage.setItem("current_user", JSON.stringify(data.user));
-          }
-          return data.access_token as string;
-        }
-      } catch (e) {
-        console.warn("Silent session authentication failed:", e);
-      } finally {
-        authPromise = null;
-      }
-      return null;
-    })();
-  }
-  return authPromise;
+  return token;
 }
 
 // ─── JWT request interceptor ──────────────────────────────────────────────────
-apiClient.interceptors.request.use(async (config) => {
-  let token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  if (!token && typeof window !== "undefined" && localStorage.getItem("user_logged_out") !== "true") {
-    token = await ensureAuthToken();
-  }
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token");
+    if (token && localStorage.getItem("user_logged_out") !== "true") {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });
 
-// ─── Response interceptor — auto refresh / recovery on 401 ────────────────────
+// ─── Response interceptor — handle 401 & session expiry ────────────────────────
+let isRefreshing = false;
+let refreshSubscribers: ((token: string | null) => void)[] = [];
+
+function onTokenRefreshed(newToken: string | null) {
+  refreshSubscribers.forEach((cb) => cb(newToken));
+  refreshSubscribers = [];
+}
+
 apiClient.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config as typeof err.config & { _retry?: boolean };
-    if (err.response?.status === 401 && !original._retry) {
-      original._retry = true;
-      const refresh = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-            refresh_token: refresh,
-          });
-          localStorage.setItem("access_token", data.access_token);
-          original.headers.Authorization = `Bearer ${data.access_token}`;
-          return apiClient(original);
-        } catch {
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-        }
-      }
+    const status = err.response?.status;
 
-      // If refresh failed or was absent, try background token restoration if not explicitly logged out
-      if (typeof window !== "undefined" && localStorage.getItem("user_logged_out") !== "true") {
-        try {
-          const newToken = await ensureAuthToken();
-          if (newToken) {
+    // Check if error is 401 Unauthorized
+    if (status === 401 && !original._retry && !original.url?.includes("/auth/login") && !original.url?.includes("/auth/refresh")) {
+      original._retry = true;
+      const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
+
+      if (refreshToken && typeof window !== "undefined" && localStorage.getItem("user_logged_out") !== "true") {
+        if (!isRefreshing) {
+          isRefreshing = true;
+          try {
+            const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+              refresh_token: refreshToken,
+            });
+            const newToken = data.access_token;
+            localStorage.setItem("access_token", newToken);
+            isRefreshing = false;
+            onTokenRefreshed(newToken);
             original.headers.Authorization = `Bearer ${newToken}`;
             return apiClient(original);
+          } catch {
+            isRefreshing = false;
+            onTokenRefreshed(null);
+            // Token refresh failed completely — session expired
+            handleSessionExpired();
+            return Promise.reject(err);
           }
-        } catch {
-          // ignore
+        } else {
+          // Queue request until active refresh finishes
+          return new Promise((resolve, reject) => {
+            refreshSubscribers.push((token) => {
+              if (token) {
+                original.headers.Authorization = `Bearer ${token}`;
+                resolve(apiClient(original));
+              } else {
+                reject(err);
+              }
+            });
+          });
         }
       }
 
-      // Notify UI that authentication is needed
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
-      }
+      // No refresh token available — session expired
+      handleSessionExpired();
     }
+
     return Promise.reject(err);
   },
 );
+
+function handleSessionExpired() {
+  if (typeof window === "undefined") return;
+  // Clear stored auth tokens and user data
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("current_user");
+  localStorage.removeItem("user_profile");
+  localStorage.setItem("user_logged_out", "true");
+
+  // Broadcast session expired event to UI
+  window.dispatchEvent(
+    new CustomEvent("auth:session_expired", {
+      detail: { message: "Sesi Anda telah berakhir, silakan masuk kembali." },
+    }),
+  );
+  window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+}
 
 export default apiClient;

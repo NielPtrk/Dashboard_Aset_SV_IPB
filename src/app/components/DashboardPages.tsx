@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   BarChart2, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
   Clock, Wrench, AlertCircle, Calendar, Lightbulb,
@@ -6,7 +6,8 @@ import {
   CircleDollarSign, Package, Car, Cpu,
   RefreshCw, FileText, ArrowUpRight, XCircle, Download,
   Search, Filter, Info, ShieldCheck, Activity, Upload,
-  Layers, HelpCircle, Plus, Trash2, Edit2, Edit, X, Check
+  Layers, HelpCircle, Plus, Trash2, Edit2, Edit, X, Check,
+  DoorClosed, LayoutGrid, Map as MapIcon, SlidersHorizontal, ChevronsUpDown, MoreHorizontal
 } from "lucide-react";
 import { useDataStore, type RuanganData, type StockOpnameRecord, getOpnameStatus, getMaintenanceStatus, computeReplacementPriority } from "./DataStore";
 import { SEED_RUANGAN } from "./ruanganSeed";
@@ -18,10 +19,12 @@ import { useApp } from "./AppContext";
 const fmtNum = (n: number) => n.toLocaleString("id-ID");
 const fmtPct = (n: number) => `${n.toFixed(1).replace(".", ",")}%`;
 const fmtRupiahShort = (n: number) => {
-  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} jt`;
-  if (n >= 1_000)         return `Rp ${(n / 1_000).toFixed(0)} rb`;
-  return `Rp ${n}`;
+  if (!n || isNaN(n)) return "Rp 0";
+  if (n >= 1_000_000_000_000) return `Rp ${(n / 1_000_000_000_000).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} T`;
+  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} M`;
+  if (n >= 1_000_000)     return `Rp ${(n / 1_000_000).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} jt`;
+  if (n >= 1_000)         return `Rp ${(n / 1_000).toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 1 })} rb`;
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
 };
 const parseVal = (v: any): number => {
   if (!v) return 0;
@@ -41,11 +44,7 @@ const P      = "#111827";
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
 function SisBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded whitespace-nowrap">
-      <Database size={9} /> Dihitung Sistem
-    </span>
-  );
+  return null;
 }
 
 function RekSistem({
@@ -75,18 +74,20 @@ function KpiStat({
   label, value, sub, badge = false, trend, up,
 }: { label: string; value: string; sub?: string; badge?: boolean; trend?: string; up?: boolean }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-5 flex flex-col justify-between min-w-0 transition-all hover:shadow-md">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs font-medium text-gray-500 leading-snug">{label}</span>
+        <span className="text-xs font-medium text-gray-500 leading-snug break-words flex-1">{label}</span>
         {badge && <SisBadge />}
       </div>
-      <p className="text-2xl font-bold text-gray-900 leading-tight">{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
-      {trend && (
-        <p className={`text-[11px] font-medium mt-1.5 flex items-center gap-0.5 ${up ? "text-green-500" : "text-red-500"}`}>
-          {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {trend}
-        </p>
-      )}
+      <div className="min-w-0">
+        <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 leading-tight tracking-tight truncate" title={value}>{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed">{sub}</p>}
+        {trend && (
+          <p className={`text-[11px] font-medium mt-1.5 flex items-center gap-0.5 ${up ? "text-green-500" : "text-red-500"}`}>
+            {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {trend}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -335,7 +336,7 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5 min-w-0">
 
         {/* ── Header + Filters ── */}
         <div className="flex items-start justify-between gap-6">
@@ -373,7 +374,7 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* ── KPI Cards — Row 1 ── */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiStat label="Total Aset"             value={fmtNum(totalAset)}              sub="Seluruh kampus & kategori"       badge trend="+48 vs bulan lalu" up />
           <KpiStat label="Total Nilai Buku"        value={fmtRupiahShort(totalBookVal)}   sub="Setelah penyusutan berjalan"     badge trend="-2,1% vs semester lalu" />
           <KpiStat label="Total Nilai Perolehan"   value={fmtRupiahShort(totalAcqVal)}    sub="Harga perolehan kumulatif"       badge />
@@ -381,7 +382,7 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* ── KPI Cards — Row 2 ── */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className="flex items-start justify-between gap-2 mb-2">
               <span className="text-xs font-medium text-gray-500 leading-snug">Aset Perlu Perhatian</span>
@@ -421,14 +422,13 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
           <div className="flex items-center gap-2 mb-3">
             <Activity size={15} className="text-gray-500" />
             <span className="text-sm font-semibold text-gray-800">Ringkasan Eksekutif</span>
-            <span className="ml-auto text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">Dihitung Sistem</span>
           </div>
           {(() => {
             const topUnit = topUnitAset[0];
             const baikPct = totalAset > 0 ? ((kondisiBreakdown.find(k => k.label === "Baik")?.value ?? 0) / totalAset * 100) : 0;
             const lowestOpname = opnameUnit.length > 0 ? [...opnameUnit].sort((a, b) => a.pct - b.pct)[0] : null;
             return (
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 <div className="space-y-2.5">
                   <div className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-1.5 shrink-0" />
@@ -477,7 +477,7 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* ── Charts Row ── */}
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
 
           {/* Donut — Kondisi Aset */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -547,7 +547,7 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
         </div>
 
         {/* ── Tables Row ── */}
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5">
 
           {/* Top Biaya Maintenance */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -652,35 +652,131 @@ export function EksekutifPage({ topBar }: { topBar: React.ReactNode }) {
 export function DashSubPageFull({ page, title, tabs, topBar }: {
   page: string; title: string; tabs: string[]; topBar: React.ReactNode;
 }) {
-  const [activeTab, setActiveTab] = useState(tabs[0]);
+  const isLokasi = page === "lokasi" || [
+    "kampus-cilibende",
+    "kampus-gunung-gede",
+    "kampus-pajajaran",
+    "kampus-baranangsiang",
+    "kampus-lainnya",
+    "kampus-belum-dikategorikan"
+  ].includes(page);
+
+  const [activeTab, setActiveTab] = useState(isLokasi ? "Ringkasan" : tabs[0]);
+  const prevPageRef = useRef(page);
+
+  // When navigating from a non-lokasi section into lokasi, default to "Ringkasan".
+  // But NEVER auto-close or reset the tab if the user is already inside Lokasi & Ruangan.
+  useEffect(() => {
+    const wasLokasi = prevPageRef.current === "lokasi" || [
+      "kampus-cilibende",
+      "kampus-gunung-gede",
+      "kampus-pajajaran",
+      "kampus-baranangsiang",
+      "kampus-lainnya",
+      "kampus-belum-dikategorikan"
+    ].includes(prevPageRef.current);
+
+    if (!wasLokasi && isLokasi) {
+      setActiveTab("Ringkasan");
+    } else if (!isLokasi && prevPageRef.current !== page) {
+      setActiveTab(tabs[0]);
+    }
+    prevPageRef.current = page;
+  }, [page, isLokasi, tabs]);
+
+  const currentTab = activeTab && tabs.includes(activeTab)
+    ? activeTab
+    : (isLokasi ? "Ringkasan" : tabs[0]);
+
+  if (isLokasi) {
+    return (
+      <main className="flex-1 overflow-y-auto bg-slate-50 min-w-0">
+        {topBar}
+        <div className="px-4 sm:px-6 lg:px-8 py-5 sm:py-7 space-y-5 min-w-0 max-w-7xl mx-auto">
+          {/* Header identical to design */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                {title}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
+                Kelola gedung, telusuri ruangan, dan lihat inventaris dalam satu tempat.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium self-start sm:self-auto shrink-0">
+              <Building size={14} className="text-slate-400" />
+              <span>Sekolah Vokasi IPB</span>
+            </div>
+          </div>
+
+          {/* Underline Tabs identical to design */}
+          <div className="flex items-center gap-6 sm:gap-8 border-b border-slate-200 overflow-x-auto scrollbar-none pt-1">
+            {tabs.map(tab => {
+              const isActive = currentTab === tab;
+              const IconComp =
+                tab === "Ringkasan"
+                  ? LayoutGrid
+                  : tab === "Aset per Ruangan"
+                  ? Package
+                  : MapIcon;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex items-center gap-2 py-3 text-xs sm:text-sm transition-colors border-b-2 whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? "border-slate-900 text-slate-900 font-bold"
+                      : "border-transparent text-slate-400 hover:text-slate-600 font-medium"
+                  }`}
+                >
+                  <IconComp size={15} />
+                  <span>{tab}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <DashTabContent page={page} tab={currentTab} onTabChange={setActiveTab} />
+
+          {/* Footer identical to design */}
+          <footer className="pt-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400 border-t border-slate-200/80 mt-8">
+            <span>Sekolah Vokasi IPB University</span>
+            <span>Lokasi & Ruangan / {title}</span>
+          </footer>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
-      <div className="px-8 py-6 space-y-5">
-        <h1 className="text-xl font-bold text-gray-900">{title}</h1>
-        <div className="flex w-full bg-gray-100 p-1 rounded-lg border border-gray-200/60">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5 min-w-0">
+        <h1 className="text-lg sm:text-xl font-bold text-gray-900">{title}</h1>
+        <div className="flex w-full bg-gray-100 p-1 rounded-lg border border-gray-200/60 overflow-x-auto scrollbar-none gap-1">
           {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${activeTab === tab ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"}`}>
+              className={`flex-1 sm:flex-1 shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${currentTab === tab ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"}`}>
               {tab}
             </button>
           ))}
         </div>
-        <DashTabContent page={page} tab={activeTab} />
+        <DashTabContent page={page} tab={currentTab} onTabChange={setActiveTab} />
       </div>
     </main>
   );
 }
 
-function DashTabContent({ page, tab }: { page: string; tab: string }) {
-  if (page === "dash-analitik")    return <AnalitikContent    tab={tab} />;
+function DashTabContent({ page, tab, onTabChange }: { page: string; tab: string; onTabChange?: (tab: string) => void }) {
+  if (page === "dash-analitik" || page === "dashboard")    return <AnalitikContent    tab={tab} />;
   if (page === "dash-keuangan")    return <KeuanganContent    tab={tab} />;
   if (page === "dash-kondisi")     return <KondisiContent     tab={tab} />;
   if (page === "dash-monitoring")  return <MonitoringContent  tab={tab} />;
   if (page === "dash-pengadaan")   return <PengadaanDashContent  tab={tab} />;
   if (page === "dash-maintenance") return <MaintenanceDashContent tab={tab} />;
   if (page === "lokasi" || ["kampus-cilibende", "kampus-gunung-gede", "kampus-pajajaran", "kampus-baranangsiang", "kampus-lainnya", "kampus-belum-dikategorikan"].includes(page)) {
-    return <LokasiKampusContent page={page === "lokasi" ? "kampus-cilibende" : page} tab={tab} />;
+    return <LokasiKampusContent page={page === "lokasi" ? "kampus-cilibende" : page} tab={tab} onTabChange={onTabChange} />;
   }
   return null;
 }
@@ -853,7 +949,7 @@ function PrediksiPerbaikanTab() {
 
   return (
     <>
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-start justify-between gap-2 mb-2"><span className="text-xs font-medium text-gray-500 leading-snug">Aset Berisiko Tinggi</span><SisBadge /></div>
           <p className="text-2xl font-bold text-red-600 leading-tight">{risikoTinggiCount}</p>
@@ -886,7 +982,6 @@ function PrediksiPerbaikanTab() {
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-800">Prediksi Risiko Perbaikan Aset</span>
             <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded font-semibold">Prediksi Awal</span>
-            <span className="text-[10px] text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded font-semibold">Dihitung Sistem</span>
           </div>
           <span className="text-[10px] text-gray-400">Confidence: Tinggi</span>
         </div>
@@ -978,12 +1073,11 @@ function PrediksiPerbaikanTab() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-800">Logika Prediksi</span>
-            <span className="text-[10px] text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded font-semibold">Dihitung Sistem</span>
             <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded font-semibold">Prediksi Awal</span>
           </div>
           <span className="text-[10px] text-gray-400">Confidence: Tinggi — 6 faktor aktif</span>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
             { label: "Sisa Masa Manfaat",              desc: "Aset dengan sisa < 1 tahun mendapat bobot risiko lebih tinggi. Lewat masa manfaat = skor +20.",                icon: "📅", weight: "Bobot: 25%" },
             { label: "Frekuensi Maintenance",          desc: "Aset dengan ≥3 maintenance dalam 12 bulan terakhir diklasifikasi berisiko sedang–tinggi.",                    icon: "🔧", weight: "Bobot: 20%" },
@@ -1077,7 +1171,7 @@ function PengelolaanAsetTab() {
 
   return (
     <>
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-start justify-between gap-2 mb-2"><span className="text-xs font-medium text-gray-500 leading-snug">Kategori Paling Efisien</span><SisBadge /></div>
           <p className="text-base font-bold text-green-600 leading-tight">{unitPalingEfisien?.unit || "—"}</p>
@@ -1336,7 +1430,7 @@ function PersebaranAsetTab() {
         </select>
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-start justify-between gap-2 mb-2"><span className="text-xs font-medium text-gray-500 leading-snug">Total Gedung</span><SisBadge /></div>
           <p className="text-2xl font-bold text-gray-900 leading-tight">{totalGedung}</p>
@@ -1560,7 +1654,7 @@ function PerencanaanPengadaanTab() {
 
   return (
     <>
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-start justify-between gap-2 mb-2"><span className="text-xs font-medium text-gray-500 leading-snug">Aset Prioritas Penggantian</span><SisBadge /></div>
           <p className="text-2xl font-bold text-red-600 leading-tight">{prioritasPenggantianCount}</p>
@@ -1726,7 +1820,7 @@ function AnalitikContent({ tab }: { tab: string }) {
     return (
       <>
         {/* ── 5 KPI Cards ── */}
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           <KpiStat label="Total Kerusakan Tercatat"  value={fmtNum(totalKerusakan)}   sub={totalKerusakan > 0 ? "Aset terdeteksi rusak" : "Belum ada kerusakan"} badge />
           <KpiStat label="Aset Sering Rusak (≥3×)"   value={fmtNum(seringRusakCount)}  sub="Frekuensi kerusakan tinggi"  badge />
           <KpiStat label="Kerusakan Bulan Ini"        value="0"                        sub="Bulan berjalan"               badge />
@@ -1735,7 +1829,7 @@ function AnalitikContent({ tab }: { tab: string }) {
         </div>
 
         {/* ── Charts Row ── */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Line chart */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-3">
@@ -1890,7 +1984,7 @@ function AnalitikContent({ tab }: { tab: string }) {
   }).length;
   return (
     <>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiStat label="Total Aset"               value={fmtNum(totalAsetRekap)}             sub="PM+ATB+ATL+AL"                                                   badge />
         <KpiStat label="Sudah Diopname"           value={fmtNum(opnameProgRekap.done)}       sub={`${fmtPct(opnameProgRekap.pct)} dari total`}                    badge />
         <KpiStat label="Belum Diverifikasi"       value={fmtNum(opnameProgRekap.total - opnameProgRekap.done)} sub="Perlu verifikasi"                              badge />
@@ -2002,13 +2096,13 @@ function KeuanganContent({ tab }: { tab: string }) {
     }).join(" ");
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiStat label="Total Nilai Perolehan" value={fmtRupiahShort(realTotalPerolehan)} sub="Semua kategori aset" badge />
           <KpiStat label="Nilai Buku Saat Ini"   value={fmtRupiahShort(realTotalBuku)}     sub={`${realTotalPerolehan > 0 ? ((realTotalBuku/realTotalPerolehan)*100).toFixed(1) : "0"}% dari perolehan`} badge />
           <KpiStat label="Rata-rata Nilai/Aset"  value={totalAsetKeu > 0 ? fmtRupiahShort(Math.round(realTotalPerolehan / totalAsetKeu)) : "—"} sub={`Berdasarkan ${fmtNum(totalAsetKeu)} aset`} badge />
           <KpiStat label="Aset Bernilai > 100 jt" value={fmtNum(storeKeu.assets.filter(a => (parseInt(a._harga_perolehan || "0") || 0) >= 100_000_000).length)} sub="Perlu revaluasi periodik" badge />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-semibold text-gray-800">Nilai Perolehan berdasarkan Tahun Buku (Rp juta)</span>
@@ -2085,7 +2179,7 @@ function KeuanganContent({ tab }: { tab: string }) {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         <KpiStat label="Ruangan Nilai Tertinggi" value={topRoom.nama.length > 18 ? topRoom.nama.slice(0, 18) + "..." : topRoom.nama} sub={fmtRupiahShort(topRoom.perolehan)} badge />
         <KpiStat label="Total Ruangan Terdaftar" value={fmtNum(totalRoomsCount)} sub="Berdasarkan data lokasi" badge />
         <KpiStat label="Rata-rata Nilai / Ruangan" value={fmtRupiahShort(avgPerRoom)} sub="Semua ruangan" badge />
@@ -2223,7 +2317,7 @@ function KondisiContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <KpiStat label="Aset Melewati Masa Manfaat" value={fmtNum(expiredCount)} sub={`${totalAssetsCount > 0 ? ((expiredCount/totalAssetsCount)*100).toFixed(1) : 0}% dari total aset`} badge />
           <KpiStat label="Mendekati Akhir Masa Manfaat" value={fmtNum(nearExpiredCount)} sub="Sisa usia ≤ 2 tahun" badge />
           <KpiStat label="Rata-rata Umur Aset" value={`${avgAge} thn`} sub="Berdasarkan data Umur_tahun" badge />
@@ -2340,7 +2434,7 @@ function KondisiContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <KpiStat label="Prioritas Sangat Tinggi" value={fmtNum(sangatTinggiCount)} sub="Skor risiko ≥ 75" badge />
           <KpiStat label="Prioritas Tinggi" value={fmtNum(tinggiCount)} sub="Skor risiko 55–74" badge />
           <KpiStat label="Prioritas Sedang" value={fmtNum(sedangCount)} sub="Skor risiko 35–54" badge />
@@ -2429,7 +2523,7 @@ function KondisiContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
           <KpiStat label="Aset Layak Pakai" value={fmtNum(totalLayak)} sub={`${totalAssets > 0 ? ((totalLayak/totalAssets)*100).toFixed(1) : 0}% dari total aset`} badge />
           <KpiStat label="Aset Tidak Layak" value={fmtNum(totalTidakLayak)} sub={`${totalAssets > 0 ? ((totalTidakLayak/totalAssets)*100).toFixed(1) : 0}% dari total aset`} badge />
           <KpiStat label="Menunggu Kajian / Verifikasi" value={fmtNum(unverifiedCount)} sub="Perlu verifikasi fisik SO" badge />
@@ -2520,7 +2614,7 @@ function KondisiContent({ tab }: { tab: string }) {
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {skor.map(k => (
           <KpiStat key={k.kat} label={`Skor Kualitas — ${k.kat.split(" (")[0]}`} value={`${k.skor}%`} sub={`Baik: ${fmtNum(k.baik)} | Rusak: ${fmtNum(k.buruk)}`} badge />
         ))}
@@ -2840,7 +2934,7 @@ function MonitoringContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <KpiStat label="Total Kampus Terdaftar" value={String(realCampuses.length)} sub={realCampuses.map(c => c.replace("Kampus ", "")).join(", ")} badge />
           <KpiStat label="Total Ruangan Terdaftar" value={fmtNum(uniqueRooms.length)} sub="Dengan data aset terdaftar" badge />
           <KpiStat label="Aset Tanpa Lokasi" value={fmtNum(assetsNoLoc.length)} sub="Perlu verifikasi fisik/SO" badge />
@@ -2892,7 +2986,7 @@ function MonitoringContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
           <KpiStat label="Tipe Aset Terdaftar" value={fmtNum(sortedItems.length)} sub="Dari database real Nama_Barang" badge />
           <KpiStat label="Tipe Terbanyak" value={top1Item.name} sub={`${fmtNum(top1Item.count)} unit (${top1Pct}%)`} badge />
           <KpiStat label="Diversifikasi Aset" value={`${fmtNum(sortedItems.length)} Jenis`} sub="Item barang unik terdaftar" badge />
@@ -2971,7 +3065,7 @@ function MonitoringContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <KpiStat label="Total Ruangan Terdaftar" value={fmtNum(ruanganData.length)} sub="Memiliki aset terhubung" badge />
           <KpiStat label="Ruangan Over Kapasitas" value="0" sub="Kapasitas lum diatur admin" badge />
           <KpiStat label="Ruangan Belum Optimal" value="0" sub="Utilisasi lum dihitung" badge />
@@ -3050,7 +3144,7 @@ function MonitoringContent({ tab }: { tab: string }) {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
           <span className="text-xs text-gray-500 font-medium">Rentang Tahun Buku</span>
           <div className="text-xl font-bold text-gray-900 mt-1">
@@ -3472,14 +3566,14 @@ function PengadaanDashContent({ tab }: { tab: string }) {
 
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiStat label="Total Aset Terdaftar" value={fmtNum(allAssets.length)} sub="Seluruh populasi aset real" badge />
           <KpiStat label="Nilai Total Pengadaan" value={fmtRupiahShort(totalNilai)} sub="Akumulasi HargaSatuan real" badge />
           <KpiStat label="Rata-rata Nilai / Unit" value={fmtRupiahShort(avgHarga)} sub="Berdasarkan populasi aset" badge />
           <KpiStat label="Sumber Dana Utama" value={topSumber.label} sub={`${fmtNum(topSumber.value)} unit aset`} badge />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-semibold text-gray-800">Distribusi per Sumber Dana (Data Real)</span>
@@ -3585,13 +3679,13 @@ function MaintenanceDashContent({ tab }: { tab: string }) {
     const pctSelesai = totalCount > 0 ? ((selesaiCount / totalCount) * 100).toFixed(1) + "%" : "0%";
     return (
       <>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiStat label="Total Perbaikan" value={fmtNum(totalCount)} sub="Semua status & kategori" badge />
           <KpiStat label="Selesai" value={fmtNum(selesaiCount)} sub={`${pctSelesai} dari total`} badge />
           <KpiStat label="Dalam Proses" value={fmtNum(prosesCount)} sub="Sedang dikerjakan" badge />
           <KpiStat label="Menunggu" value={fmtNum(menungguCount)} sub="Belum ditangani" badge />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-semibold text-gray-800">Distribusi per Kategori Aset</span>
@@ -3640,7 +3734,7 @@ function MaintenanceDashContent({ tab }: { tab: string }) {
     const maxCatBiaya = Math.max(...catData.map(c => c.totalBiaya), 1);
     return (
       <>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <KpiStat label="Total Biaya Perbaikan" value={fmtRupiahShort(totalBiaya)} sub="Akumulasi biaya maintenance" badge />
           <KpiStat label="Rata-rata per Perbaikan" value={fmtRupiahShort(avgBiaya)} sub={`Berdasarkan ${totalCount} tiket`} badge />
           <KpiStat label="Biaya Terbesar (Kategori)" value={topCostCat} sub="Kategori biaya tertinggi" badge />
@@ -3767,7 +3861,9 @@ type CampusAssetRow = {
   rawNamaRuangan: string;
 };
 
-function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
+function LokasiKampusContent({ page, tab, onTabChange }: { page: string; tab: string; onTabChange?: (tab: string) => void }) {
+  // Always default to "Ringkasan" if tab is empty or invalid
+  const currentTab = (!tab || !["Ringkasan", "Aset per Ruangan", "Denah / Floorplan"].includes(tab)) ? "Ringkasan" : tab;
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [treeSearch, setTreeSearch] = useState("");
   const [filterGedung, setFilterGedung] = useState("Semua");
@@ -3775,6 +3871,24 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
   const [filterKategori, setFilterKategori] = useState("Semua");
   const [sumberFilter, setSumberFilter] = useState<"Semua" | "BMN" | "Observasi">("Semua");
   const [showUnmatchedReport, setShowUnmatchedReport] = useState(false);
+
+  // Room More Menu State
+  const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
+  const roomMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (roomMenuRef.current && !roomMenuRef.current.contains(e.target as Node)) {
+        setIsRoomMenuOpen(false);
+      }
+    };
+    if (isRoomMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isRoomMenuOpen]);
 
   // CRUD Modals State
   const [isAddGedungOpen, setIsAddGedungOpen] = useState(false);
@@ -3953,15 +4067,38 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
 
   // Aggregate room data (with precise asset counts from matched campusAssets & observasiItems)
   const rooms: RoomDatum[] = useMemo(() => {
+    // 1-pass aggregation map for BMN assets by roomId
+    const bmnMap = new Map<string, { count: number; okCount: number; nilaiBuku: number; allVerified: boolean }>();
+    campusAssets.forEach((a) => {
+      const rid = String(a.roomId);
+      let entry = bmnMap.get(rid);
+      if (!entry) {
+        entry = { count: 0, okCount: 0, nilaiBuku: 0, allVerified: true };
+        bmnMap.set(rid, entry);
+      }
+      entry.count += 1;
+      if (a.kondisi === "Baik") entry.okCount += 1;
+      entry.nilaiBuku += a.nilaiBuku;
+      if (a.statusLokasi !== "Terverifikasi") entry.allVerified = false;
+    });
+
+    // 1-pass aggregation map for Observasi items by ruanganId
+    const obsMap = new Map<string, { count: number; nilai: number }>();
+    (observasiItems || []).forEach((o) => {
+      const rid = String(o.ruanganId);
+      let entry = obsMap.get(rid);
+      if (!entry) {
+        entry = { count: 0, nilai: 0 };
+        obsMap.set(rid, entry);
+      }
+      entry.count += 1;
+      entry.nilai += Number(o.jumlahHarga) || 0;
+    });
+
     return campusRuangan.map((r) => {
       const roomId = String(r.id);
-      const roomAssetList = campusAssets.filter((a) => a.roomId === roomId);
-      const obsItemsForRoom = (observasiItems || []).filter((o) => o.ruanganId === roomId);
-      const okAssets = roomAssetList.filter((a) => a.kondisi === "Baik").length;
-      const totalNilaiBuku = roomAssetList.reduce((sum, a) => sum + a.nilaiBuku, 0);
-      const totalObsNilai = obsItemsForRoom.reduce((sum, it) => sum + (Number(it.jumlahHarga) || 0), 0);
-
-      const isAllVerified = roomAssetList.length > 0 && roomAssetList.every((a) => a.statusLokasi === "Terverifikasi");
+      const bmn = bmnMap.get(roomId) || { count: 0, okCount: 0, nilaiBuku: 0, allVerified: false };
+      const obs = obsMap.get(roomId) || { count: 0, nilai: 0 };
 
       return {
         id: roomId,
@@ -3973,15 +4110,15 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
         kategori: r.kategori || "Umum",
         luas: r.luas || 0,
         kapasitasOrang: r.kapasitas || 0,
-        aset: roomAssetList.length,
-        obsAset: obsItemsForRoom.length,
-        obsNilai: totalObsNilai,
-        kondisiOk: okAssets,
-        nilaiBuku: totalNilaiBuku,
+        aset: bmn.count,
+        obsAset: obs.count,
+        obsNilai: obs.nilai,
+        kondisiOk: bmn.okCount,
+        nilaiBuku: bmn.nilaiBuku,
         lat: null,
         lng: null,
         referensiDenah: null,
-        statusLokasi: isAllVerified ? "Terverifikasi" : roomAssetList.length > 0 ? "Belum Diverifikasi" : "Perlu Verifikasi",
+        statusLokasi: bmn.count > 0 && bmn.allVerified ? "Terverifikasi" : bmn.count > 0 ? "Belum Diverifikasi" : "Perlu Verifikasi",
         unit: r.unitPengguna || "Sekolah Vokasi (SV)",
       };
     });
@@ -4003,7 +4140,16 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
     String(r.kode || "").toLowerCase().includes(treeSearch.toLowerCase())
   ), [filteredRooms, treeSearch]);
 
-  const selectedRoomData = selectedRoom ? rooms.find(r => r.id === selectedRoom) ?? null : null;
+  const selectedRoomData = useMemo(() => {
+    if (selectedRoom) {
+      const found = rooms.find(r => r.id === selectedRoom);
+      if (found) return found;
+    }
+    // Default directly to the first room so Ringkasan panel is immediately shown without needing to click first
+    if (treeRooms.length > 0) return treeRooms[0];
+    if (rooms.length > 0) return rooms[0];
+    return null;
+  }, [selectedRoom, rooms, treeRooms]);
 
   // Registered BMN Assets for this room
   const selectedRoomBmnAssets = useMemo(() => {
@@ -4245,40 +4391,62 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
     return { roomCount: roomsInGedung.length, bmn, obs, total: bmn + obs };
   };
 
+  // Auto-select first room if none selected
+  useEffect(() => {
+    if (!selectedRoom && filteredRooms.length > 0) {
+      setSelectedRoom(String(filteredRooms[0].id));
+    }
+  }, [filteredRooms, selectedRoom]);
+
   // Shared filter bar with CRUD actions
   const filterBar = (
-    <div className="flex items-center justify-between gap-3 flex-wrap bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm">
-      <div className="flex items-center gap-3 flex-wrap">
-        <select value={filterGedung} onChange={e => setFilterGedung(e.target.value)} className={FILTER_SELECT_CLS}>
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="p-2 text-slate-400 hidden sm:flex items-center justify-center">
+          <SlidersHorizontal size={16} />
+        </div>
+        <select
+          value={filterGedung}
+          onChange={e => setFilterGedung(e.target.value)}
+          className="bg-white border border-slate-200/90 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs outline-none cursor-pointer hover:border-slate-300 min-h-[38px]"
+        >
           <option value="Semua">Semua Gedung ({gedungList.length})</option>
           {gedungList.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
-        <select value={filterLantai} onChange={e => setFilterLantai(e.target.value)} className={FILTER_SELECT_CLS}>
+        <select
+          value={filterLantai}
+          onChange={e => setFilterLantai(e.target.value)}
+          className="bg-white border border-slate-200/90 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs outline-none cursor-pointer hover:border-slate-300 min-h-[38px]"
+        >
           <option value="Semua">Semua Lantai</option>
           {lantaiList.map(l => <option key={l} value={l}>{l === "B1" ? "Basement" : `Lantai ${l}`}</option>)}
         </select>
-        <select value={filterKategori} onChange={e => setFilterKategori(e.target.value)} className={FILTER_SELECT_CLS}>
+        <select
+          value={filterKategori}
+          onChange={e => setFilterKategori(e.target.value)}
+          className="bg-white border border-slate-200/90 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs outline-none cursor-pointer hover:border-slate-300 min-h-[38px]"
+        >
           <option value="Semua">Semua Kategori</option>
           {kategoriList.map(k => <option key={k} value={k}>{k}</option>)}
         </select>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <button
           type="button"
           onClick={openAddGedung}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-semibold transition-colors border border-gray-200"
+          className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200/90 shadow-2xs min-h-[38px] cursor-pointer"
         >
-          <Building size={13} className="text-gray-600" />
-          <span>+ Tambah Gedung</span>
+          <Building size={14} className="text-slate-500" />
+          <span>Tambah Gedung</span>
         </button>
         <button
           type="button"
           onClick={() => openAddRuangan()}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#022B5F] hover:bg-[#033b82] text-white rounded-lg text-xs font-semibold transition-colors shadow-sm"
+          className="flex items-center gap-1.5 px-4 py-2 bg-[#0B1E33] hover:bg-[#112D4E] text-white rounded-xl text-xs font-bold transition-colors shadow-xs min-h-[38px] cursor-pointer"
         >
           <Plus size={14} />
-          <span>+ Tambah Ruangan</span>
+          <span>Tambah Ruangan</span>
         </button>
       </div>
     </div>
@@ -4304,306 +4472,369 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
 
   // Shared KPI cards (2 cards)
   const kpiCards = (
-    <div className="grid grid-cols-2 gap-4">
-      <KpiStat label="Total Gedung"  value={gedungCount.toString()}          sub="Dalam kampus ini" />
-      <KpiStat label="Total Ruangan" value={filteredRooms.length.toString()} sub="Sesuai filter aktif" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs flex items-center justify-between">
+        <div>
+          <span className="text-xs font-medium text-slate-400 block">Total Gedung</span>
+          <div className="flex items-baseline gap-2 mt-1">
+            <span className="text-3xl font-extrabold text-slate-900 tracking-tight">{gedungCount}</span>
+            <span className="text-xs text-slate-400 font-normal">Dalam kampus ini</span>
+          </div>
+        </div>
+        <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+          <Building size={20} />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs flex items-center justify-between">
+        <div>
+          <span className="text-xs font-medium text-slate-400 block">Total Ruangan</span>
+          <div className="flex items-baseline gap-2 mt-1">
+            <span className="text-3xl font-extrabold text-slate-900 tracking-tight">{filteredRooms.length}</span>
+            <span className="text-xs text-slate-400 font-normal">Sesuai filter aktif</span>
+          </div>
+        </div>
+        <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+          <DoorClosed size={20} />
+        </div>
+      </div>
     </div>
   );
 
-  // Tree view panel (Accordion per Gedung)
+  // Tree view panel (Penjelajah ruangan)
   const treePanel = (
-    <div className="col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden" style={{ minHeight: 460, maxHeight: 600 }}>
-      <div className="p-3 border-b border-gray-100 shrink-0 flex items-center justify-between gap-2">
-        <div className="relative flex-1">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+    <div className="col-span-1 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col overflow-hidden" style={{ minHeight: 480, maxHeight: 640 }}>
+      <div className="p-4 pb-3 flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-900">Penjelajah ruangan</h3>
+        <SlidersHorizontal size={15} className="text-slate-400" />
+      </div>
+
+      <div className="px-4 pb-3">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="Cari ruangan / kode..."
             value={treeSearch}
             onChange={e => setTreeSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs outline-none focus:ring-1 focus:ring-gray-300"
+            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:bg-white font-medium"
           />
         </div>
       </div>
-      <div className="overflow-y-auto flex-1 p-2 space-y-2">
+
+      <div className="overflow-y-auto flex-1 px-3 py-1 space-y-2">
         {Object.entries(treeByGedung).length === 0 && (
-          <div className="text-center py-10 px-4">
-            <Building size={28} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-xs font-medium text-gray-500">Tidak ada ruangan</p>
-            <p className="text-[11px] text-gray-400 mt-1">Tambahkan ruangan baru dengan tombol di atas.</p>
+          <div className="text-center py-12 px-4">
+            <Building size={28} className="mx-auto text-slate-300 mb-2" />
+            <p className="text-xs font-medium text-slate-500">Tidak ada ruangan</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Tambahkan ruangan baru dengan tombol di atas.</p>
           </div>
         )}
         {Object.entries(treeByGedung).map(([gedung, roomList]) => {
           const expanded = isGedungExpanded(gedung);
-          const totalAssetsInGedung = roomList.reduce((acc, r) => acc + r.aset, 0);
-          const totalObsInGedung = roomList.reduce((acc, r) => acc + (r.obsAset || 0), 0);
+
+          // Group rooms by floor (Lantai)
+          const roomsByFloor: Record<string, RoomDatum[]> = {};
+          roomList.forEach(r => {
+            const fl = r.lantai || "1";
+            if (!roomsByFloor[fl]) roomsByFloor[fl] = [];
+            roomsByFloor[fl].push(r);
+          });
+          const sortedFloors = Object.keys(roomsByFloor).sort((a, b) => {
+            if (a === "B1") return -1;
+            if (b === "B1") return 1;
+            return a.localeCompare(b, undefined, { numeric: true });
+          });
+
           return (
-            <div key={gedung} className="border border-gray-100 rounded-lg overflow-hidden group/gedung">
+            <div key={gedung} className="space-y-1">
               <div
-                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50/90 hover:bg-gray-100 transition-colors text-left select-none cursor-pointer"
                 onClick={() => toggleGedung(gedung)}
+                className="flex items-center justify-between px-3 py-2 bg-slate-50/90 hover:bg-slate-100 rounded-xl border border-slate-200/80 cursor-pointer select-none transition-colors"
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Building size={13} className="text-gray-600 shrink-0" />
-                  <span className="text-xs font-bold text-gray-800 truncate">{gedung}</span>
+                <div className="flex items-center gap-2 truncate pr-2">
+                  <Building size={14} className="text-blue-600 shrink-0" />
+                  <span className="text-xs font-bold text-slate-800 truncate">{gedung}</span>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2 flex-wrap justify-end">
-                  {totalAssetsInGedung > 0 && (
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                      {totalAssetsInGedung} BMN
-                    </span>
-                  )}
-                  {totalObsInGedung > 0 && (
-                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                      +{totalObsInGedung} Obs
-                    </span>
-                  )}
-                  <span className="text-[10px] font-semibold text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-200">
-                    {roomList.length} r.
-                  </span>
-
-                  {/* Gedung Actions */}
-                  <div className="flex items-center gap-1 opacity-60 hover:opacity-100" onClick={e => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      title="Tambah Ruangan di Gedung ini"
-                      onClick={() => openAddRuangan(gedung)}
-                      className="p-1 hover:bg-white text-gray-600 hover:text-blue-600 rounded transition-colors"
-                    >
-                      <Plus size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Hapus Gedung"
-                      onClick={() => openDeleteGedung(gedung)}
-                      className="p-1 hover:bg-white text-gray-400 hover:text-red-600 rounded transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-
-                  {expanded ? <ChevronDown size={13} className="text-gray-400" /> : <ChevronRight size={13} className="text-gray-400" />}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? "" : "-rotate-90"}`} />
                 </div>
               </div>
 
               {expanded && (
-                <div className="p-1.5 space-y-0.5 bg-white border-t border-gray-100">
-                  {roomList.map(r => {
-                    const isSelected = selectedRoom === r.id;
-                    return (
-                      <div
-                        key={r.id}
-                        className={`group/room w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
-                          isSelected
-                            ? "bg-blue-50 text-blue-900 font-semibold border border-blue-200"
-                            : "hover:bg-gray-50 text-gray-700"
-                        }`}
-                        onClick={() => setSelectedRoom(isSelected ? null : r.id)}
-                      >
-                        <span className="truncate flex-1 pr-2">{r.nama}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {r.aset > 0 && (
-                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded">
-                              {r.aset} BMN
-                            </span>
-                          )}
-                          {r.obsAset > 0 && (
-                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded">
-                              +{r.obsAset} Obs
-                            </span>
-                          )}
-                          {r.aset === 0 && r.obsAset === 0 && (
-                            <span className="text-[10px] text-gray-400 font-mono">
-                              {r.kode}
-                            </span>
-                          )}
-
-                          {/* Room Actions */}
-                          <div
-                            className="flex items-center gap-0.5 opacity-0 group-hover/room:opacity-100 transition-opacity ml-1"
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              title="Edit Ruangan"
-                              onClick={() => openEditRuangan(r)}
-                              className="p-1 hover:bg-gray-200 text-gray-500 hover:text-blue-600 rounded transition-colors"
-                            >
-                              <Edit2 size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              title="Hapus Ruangan"
-                              onClick={() => openDeleteRuangan(r)}
-                              className="p-1 hover:bg-gray-200 text-gray-400 hover:text-red-600 rounded transition-colors"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </div>
-                        </div>
+                <div className="space-y-2 pl-1 pr-1 pb-1">
+                  {sortedFloors.map(floor => (
+                    <div key={floor} className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <Layers size={10} className="text-slate-400" />
+                        <span>{floor === "B1" ? "BASEMENT" : `LANTAI ${floor}`}</span>
                       </div>
-                    );
-                  })}
+                      {roomsByFloor[floor].map(r => {
+                        const isSelected = selectedRoomData?.id === r.id;
+                        const bmnCount = r.aset;
+                        const obsCount = r.obsAset;
+                        return (
+                          <div
+                            key={r.id}
+                            onClick={() => setSelectedRoom(r.id)}
+                            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                              isSelected
+                                ? "bg-blue-50/80 text-blue-900 font-semibold border border-blue-200/90"
+                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 pr-2">
+                              <DoorClosed size={14} className={isSelected ? "text-blue-600 shrink-0" : "text-slate-400 shrink-0"} />
+                              <span className="truncate" title={r.nama}>{r.nama}</span>
+                            </div>
+                            {(bmnCount > 0 || obsCount > 0) && (
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                {bmnCount > 0 && (
+                                  <span
+                                    title={`${bmnCount} aset BMN`}
+                                    className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-[18px] text-[10px] font-bold font-mono rounded-md bg-blue-100 text-blue-700 shrink-0"
+                                  >
+                                    {bmnCount}
+                                  </span>
+                                )}
+                                {obsCount > 0 && (
+                                  <span
+                                    title={`${obsCount} aset Observasi`}
+                                    className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-[18px] text-[10px] font-bold font-mono rounded-md bg-rose-100 text-rose-700 shrink-0"
+                                  >
+                                    {obsCount}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      <div className="p-3 px-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-medium">
+        <span>{gedungCount} gedung · {filteredRooms.length} ruangan</span>
+        <ChevronsUpDown size={14} className="text-slate-400" />
+      </div>
     </div>
   );
 
   // Room detail panel
   const detailPanel = (
-    <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" style={{ minHeight: 420 }}>
+    <div className="col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6 overflow-hidden" style={{ minHeight: 480 }}>
       {selectedRoomData ? (
         <>
-          <div className="p-5 border-b border-gray-100">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-mono text-gray-400 mb-0.5">{selectedRoomData.kode}</p>
-                <h3 className="text-base font-bold text-gray-900">{selectedRoomData.nama}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{selectedRoomData.namaGedung} · {selectedRoomData.lantai === "B1" ? "Basement" : `Lantai ${selectedRoomData.lantai}`}</p>
+          {/* Room Header */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <DoorClosed size={24} strokeWidth={1.75} />
               </div>
-              <div className="flex items-center gap-2">
-                <SoftBadge
-                  label={selectedRoomData.statusLokasi}
-                  color={selectedRoomData.statusLokasi === "Terverifikasi" ? "green" : selectedRoomData.statusLokasi === "Belum Diverifikasi" ? "amber" : "gray"}
-                />
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">{selectedRoomData.nama}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {selectedRoomData.namaGedung} / {selectedRoomData.lantai === "B1" ? "Basement" : `Lantai ${selectedRoomData.lantai}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onTabChange?.("Denah / Floorplan")}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl text-xs font-semibold text-slate-700 shadow-2xs transition-colors cursor-pointer"
+              >
+                <MapIcon size={13} className="text-slate-500" />
+                <span>Peta Inventaris</span>
+              </button>
+
+              {/* More menu popup */}
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => openEditRuangan(selectedRoomData)}
-                  className="flex items-center gap-1 text-xs text-gray-700 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-lg transition-colors border border-gray-200 font-medium"
+                  onClick={() => setIsRoomMenuOpen(prev => !prev)}
+                  className="p-2 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl text-slate-500 shadow-2xs transition-colors cursor-pointer"
+                  title="Menu Ruangan"
                 >
-                  <Edit2 size={12} /> Edit
+                  <MoreHorizontal size={15} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => openDeleteRuangan(selectedRoomData)}
-                  className="flex items-center gap-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-lg transition-colors border border-red-200 font-medium"
-                >
-                  <Trash2 size={12} /> Hapus
-                </button>
+                {isRoomMenuOpen && (
+                  <div
+                    ref={roomMenuRef}
+                    className="absolute right-0 top-full mt-1.5 w-44 bg-white rounded-xl border border-slate-200 shadow-xl z-20 py-1 animate-in fade-in duration-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRoomMenuOpen(false);
+                        openEditRuangan(selectedRoomData);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Edit2 size={13} />
+                      <span>Edit Ruangan</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRoomMenuOpen(false);
+                        openDeleteRuangan(selectedRoomData);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Trash2 size={13} />
+                      <span>Hapus Ruangan</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-          <div className="p-5">
-            <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
-              {[
-                { label: "Kategori Ruangan", val: selectedRoomData.kategori },
-                { label: "Luas Ruangan",    val: `${selectedRoomData.luas} m²` },
-                { label: "Kapasitas",       val: selectedRoomData.kapasitasOrang > 0 ? `${selectedRoomData.kapasitasOrang} orang` : "Belum ditentukan" },
-                { label: "Aset Terdaftar (BMN)", val: `${selectedRoomData.aset} unit` },
-                { label: "Aset Observasi Lapangan", val: `${selectedRoomData.obsAset || 0} unit` },
-                { label: "Nilai Buku Resmi BMN", val: selectedRoomData.nilaiBuku > 0 ? `Rp ${(selectedRoomData.nilaiBuku / 1000).toFixed(0)} jt` : "Rp 0" },
-                { label: "Unit Pengguna",   val: selectedRoomData.unit },
-                { label: "Koordinat GPS",   val: "Belum tersedia" },
-                { label: "Referensi Denah", val: "Belum ada" },
-              ].map(item => (
-                <div key={item.label}>
-                  <p className="text-[10px] text-gray-400 mb-0.5">{item.label}</p>
-                  <p className="text-xs font-semibold text-gray-800">{item.val}</p>
-                </div>
-              ))}
+
+          {/* Top 3 Metadata Items */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 text-xs">
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Kategori Ruangan</span>
+              <span className="text-slate-900 font-semibold block mt-1">{selectedRoomData.kategori}</span>
             </div>
-            {totalSelectedRoomAssetsCount > 0 ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between pb-1.5 border-b border-gray-100">
-                  <p className="text-xs font-bold text-gray-800 flex items-center gap-2">
-                    <span>Aset Terdaftar di Ruangan Ini</span>
-                    <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                      {totalSelectedRoomAssetsCount} unit
-                    </span>
-                  </p>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold">
-                    {selectedRoomBmnAssets.length > 0 && (
-                      <span className="text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                        {selectedRoomBmnAssets.length} BMN
-                      </span>
-                    )}
-                    {selectedRoomObsItems.length > 0 && (
-                      <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
-                        +{selectedRoomObsItems.length} Observasi
-                      </span>
-                    )}
-                  </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Luas Ruangan</span>
+              <span className="text-slate-900 font-semibold block mt-1">
+                {selectedRoomData.luas > 0 ? `${selectedRoomData.luas} m²` : "-"}
+              </span>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Kapasitas</span>
+              <span className="text-slate-900 font-semibold block mt-1">
+                {selectedRoomData.kapasitasOrang > 0 ? `${selectedRoomData.kapasitasOrang} orang` : "Belum ditentukan"}
+              </span>
+            </div>
+          </div>
+
+          {/* Highlight Metrics Banner */}
+          <div className="bg-slate-50/70 border border-slate-200/70 rounded-2xl p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Aset Inventaris (Unit)</span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-2xl font-bold text-slate-900">{totalSelectedRoomAssetsCount}</span>
+                <span className="text-xs text-slate-500 font-medium">unit</span>
+              </div>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Aset Inventaris Terpasang</span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-2xl font-bold text-slate-900">{selectedRoomBmnAssets.length}</span>
+                <span className="text-xs text-slate-500 font-medium">unit</span>
+              </div>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Nilai Aset Perolehan</span>
+              <div className="mt-1">
+                <span className="text-2xl font-bold text-slate-900">
+                  {selectedRoomData.nilaiBuku > 0
+                    ? `Rp ${(selectedRoomData.nilaiBuku / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt`
+                    : "Rp 0"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom 3 Metadata Items */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 text-xs">
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Unit Pengguna</span>
+              <span className="text-slate-900 font-semibold block mt-1 truncate" title={selectedRoomData.unit}>
+                {selectedRoomData.unit || "Direktorat Sekolah Vokasi"}
+              </span>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Penanggung Jawab</span>
+              <span className="text-slate-900 font-semibold block mt-1">Belum tersedia</span>
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 font-medium block">Referensi Denah</span>
+              <span className="text-slate-900 font-semibold block mt-1">
+                {selectedRoomData.referensiDenah ? "Tersedia" : "Belum ada"}
+              </span>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-slate-100" />
+
+          {/* Section: Aset terhubung */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-900">Aset terhubung</span>
+              <span className="text-slate-400 font-medium">BMN & Ekstrakomtabel</span>
+            </div>
+
+            {totalSelectedRoomAssetsCount === 0 ? (
+              <div className="border border-slate-100 bg-slate-50/60 rounded-2xl p-6 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-white border border-slate-200/80 flex items-center justify-center text-slate-400 shrink-0">
+                  <Package size={18} />
                 </div>
-
-                {/* 1. BMN Assets List */}
-                {selectedRoomBmnAssets.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
-                      Aset Terdaftar Resmi (BMN) ({selectedRoomBmnAssets.length})
-                    </div>
-                    <div className="space-y-1">
-                      {selectedRoomBmnAssets.slice(0, 5).map(a => (
-                        <div key={a.id} className="flex items-center gap-2 py-1.5 px-2 bg-blue-50/30 hover:bg-blue-50/60 rounded-lg border border-blue-100/60 transition-colors">
-                          <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded shrink-0">
-                            BMN
-                          </span>
-                          <span className="text-[10px] font-mono text-gray-500 w-20 shrink-0 truncate">{a.kode}</span>
-                          <span className="text-xs text-gray-800 flex-1 truncate font-medium">{a.nama}</span>
-                          <span className="text-[10px] text-gray-400 shrink-0">{a.unit}</span>
-                          <SoftBadge label={a.statusLokasi} color={a.statusLokasiColor} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 2. Observasi Items List */}
-                {selectedRoomObsItems.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-rose-800 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                      Aset Temuan Lapangan / Hasil Observasi ({selectedRoomObsItems.length})
-                    </div>
-                    <div className="space-y-1">
-                      {selectedRoomObsItems.slice(0, 5).map((o, idx) => (
-                        <div key={o.id || idx} className="flex items-center gap-2 py-1.5 px-2 bg-rose-50/30 hover:bg-rose-50/60 rounded-lg border border-rose-100/60 transition-colors">
-                          <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded shrink-0">
-                            Obs
-                          </span>
-                          <span className="text-[10px] font-mono text-rose-900 w-20 shrink-0 truncate">
-                            {o.nup ? `NUP ${o.nup}` : o.kodeBarang || "OBS"}
-                          </span>
-                          <span className="text-xs text-gray-800 flex-1 truncate font-medium">
-                            {o.namaBarang}
-                          </span>
-                          {o.merekType && (
-                            <span className="text-[10px] text-gray-500 truncate max-w-[100px] shrink-0">
-                              {o.merekType}
-                            </span>
-                          )}
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100/80 text-rose-800 border border-rose-200 shrink-0">
-                            {o.kondisi || "Baik"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {totalSelectedRoomAssetsCount > 10 && (
-                  <p className="text-[11px] text-gray-500 italic pt-1">
-                    Menampilkan 10 aset teratas. Lihat seluruh daftar pada Tab <strong>Aset per Ruangan</strong>.
+                <div>
+                  <h5 className="text-xs font-bold text-slate-800">Belum ada aset terhubung</h5>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Belum ada data aset BMN maupun Ekstrakomtabel yang terhubung ke ruangan ini.
                   </p>
-                )}
+                </div>
               </div>
             ) : (
-              <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-100">
-                <p className="text-xs text-gray-500 font-medium">Belum ada data aset (BMN maupun Observasi) yang terhubung ke ruangan ini.</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">Aset akan terhubung otomatis saat diverifikasi melalui modul Stock Opname atau diinput melalui modul Observasi Ruangan.</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {selectedRoomBmnAssets.map(a => (
+                  <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 border border-slate-100 hover:border-blue-200 transition-colors text-xs">
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">BMN</span>
+                        <span className="text-[11px] font-mono text-slate-400">{a.kode}</span>
+                      </div>
+                      <p className="font-bold text-slate-800 truncate mt-0.5">{a.nama}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-bold text-slate-900 block">
+                        {a.nilaiBuku > 0 ? `Rp ${(a.nilaiBuku / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt` : "Rp 0"}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">{a.kondisi}</span>
+                    </div>
+                  </div>
+                ))}
+                {selectedRoomObsItems.map((o, idx) => (
+                  <div key={o.id || idx} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/40 border border-rose-100 hover:border-rose-200 transition-colors text-xs">
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">Observasi</span>
+                        <span className="text-[11px] font-mono text-rose-900">{o.nup ? `NUP ${o.nup}` : o.kodeBarang || "OBS"}</span>
+                      </div>
+                      <p className="font-bold text-slate-800 truncate mt-0.5">{o.namaBarang}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-bold text-slate-900 block">
+                        {Number(o.jumlahHarga) > 0 ? `Rp ${(Number(o.jumlahHarga) / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt` : "Rp 0"}
+                      </span>
+                      <span className="text-[10px] text-rose-700 font-semibold block">{o.kondisi || "Baik"}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </>
       ) : (
         <div className="flex flex-col items-center justify-center h-full py-16 text-center">
-          <Building size={32} className="text-gray-200 mb-3" />
-          <p className="text-sm font-medium text-gray-400">Pilih ruangan dari daftar</p>
-          <p className="text-xs text-gray-300 mt-1">Klik nama ruangan di sebelah kiri untuk melihat detail spesifikasi ruangan.</p>
+          <DoorClosed size={36} className="text-slate-200 mb-3" />
+          <p className="text-sm font-bold text-slate-600">Pilih ruangan dari penjelajah</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs">
+            Klik nama ruangan di sebelah kiri untuk melihat rincian spesifikasi dan aset ruangan.
+          </p>
         </div>
       )}
     </div>
@@ -4714,7 +4945,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
             </div>
 
             <form onSubmit={handleAddRuanganSubmit} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Kampus</label>
                   <select
@@ -4742,8 +4973,8 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-gray-700 mb-1">
                     Nama Ruangan <span className="text-red-500">*</span>
                   </label>
@@ -4768,7 +4999,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Lantai / Level</label>
                   <input
@@ -4803,7 +5034,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Kapasitas Orang</label>
                   <input
@@ -4868,7 +5099,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
             </div>
 
             <form onSubmit={handleEditRuanganSubmit} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Kampus</label>
                   <select
@@ -4896,8 +5127,8 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-gray-700 mb-1">
                     Nama Ruangan <span className="text-red-500">*</span>
                   </label>
@@ -4922,7 +5153,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Lantai / Level</label>
                   <input
@@ -4957,7 +5188,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Kapasitas Orang</label>
                   <input
@@ -5123,23 +5354,23 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
   );
 
   // ── Tab: Ringkasan ────────────────────────────────────────────────────────────
-  if (tab === "Ringkasan") {
+  if (currentTab === "Ringkasan") {
     return (
-      <>
+      <div className="space-y-4">
         {unassignedNotice}
         {filterBar}
         {kpiCards}
-        <div className="grid grid-cols-3 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
           {treePanel}
           {detailPanel}
         </div>
         {modals}
-      </>
+      </div>
     );
   }
 
   // ── Tab: Aset per Ruangan ─────────────────────────────────────────────────────
-  if (tab === "Aset per Ruangan") {
+  if (currentTab === "Aset per Ruangan") {
     const filterKey = selectedRoom ?? "Semua";
     const selectedRoomDetail = selectedRoom ? campusRuangan.find(r => String(r.id) === selectedRoom) : null;
 
@@ -5429,7 +5660,7 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
   }
 
   // ── Tab: Denah / Floorplan ────────────────────────────────────────────────────
-  if (tab === "Denah / Floorplan") {
+  if (currentTab === "Denah / Floorplan") {
     const denahRoom = selectedRoomData;
     return (
       <>
@@ -5481,6 +5712,19 @@ function LokasiKampusContent({ page, tab }: { page: string; tab: string }) {
       </>
     );
   }
-  return null;
+
+  // Fallback default: Always display Ringkasan view
+  return (
+    <div className="space-y-4">
+      {unassignedNotice}
+      {filterBar}
+      {kpiCards}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        {treePanel}
+        {detailPanel}
+      </div>
+      {modals}
+    </div>
+  );
 }
 

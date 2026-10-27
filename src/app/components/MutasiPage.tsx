@@ -163,16 +163,30 @@ function JenisBadge({ jenis }: { jenis: MutasiJenis }) {
 }
 
 // ── Detail Drawer ─────────────────────────────────────────────────────────────
-function DetailDrawer({ record, onClose, onStatusChange }: {
+function DetailDrawer({ record, onClose, onStatusChange, canApprove }: {
   record: MutasiRecord;
   onClose: () => void;
   onStatusChange: (id: string, status: MutasiStatus, catatan?: string) => void;
+  canApprove?: boolean;
 }) {
   const [confirmAction, setConfirmAction] = useState<"Disetujui" | "Ditolak" | null>(null);
   const [catatanInput, setCatatanInput] = useState("");
+  const [catatanError, setCatatanError] = useState("");
 
   const handleConfirm = () => {
     if (!confirmAction) return;
+    // Alasan penolakan wajib diisi minimal 10 karakter
+    if (confirmAction === "Ditolak") {
+      if (!catatanInput.trim() || catatanInput.trim().length < 10) {
+        setCatatanError("Alasan penolakan wajib diisi minimal 10 karakter.");
+        return;
+      }
+      if (catatanInput.trim().length > 500) {
+        setCatatanError("Alasan penolakan maksimal 500 karakter.");
+        return;
+      }
+    }
+    setCatatanError("");
     onStatusChange(record.id, confirmAction, catatanInput);
     onClose();
   };
@@ -187,7 +201,7 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full z-50 w-[520px] bg-white shadow-2xl flex flex-col">
+      <div className="fixed top-0 right-0 h-full z-50 w-full sm:w-[520px] max-w-full bg-white shadow-2xl flex flex-col">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between shrink-0">
@@ -348,8 +362,8 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
             </div>
           )}
 
-          {/* Approve / Reject actions */}
-          {record.status === "Menunggu" && !confirmAction && (
+          {/* Approve / Reject actions — only for admins who can approve */}
+          {canApprove && record.status === "Menunggu" && !confirmAction && (
             <div className="flex gap-3 pt-2 border-t border-gray-100">
               <button
                 onClick={() => setConfirmAction("Ditolak")}
@@ -373,13 +387,20 @@ function DetailDrawer({ record, onClose, onStatusChange }: {
               </p>
               <textarea
                 value={catatanInput}
-                onChange={e => setCatatanInput(e.target.value)}
-                placeholder={confirmAction === "Disetujui" ? "Catatan persetujuan (opsional)..." : "Alasan penolakan (wajib)..."}
-                className="w-full p-3 text-sm border border-gray-200 rounded-lg resize-none outline-none bg-white mb-3"
-                rows={2}
+                onChange={e => { setCatatanInput(e.target.value); if (catatanError) setCatatanError(""); }}
+                placeholder={confirmAction === "Disetujui" ? "Catatan persetujuan (opsional)..." : "Alasan penolakan wajib diisi (min. 10 karakter)..."}
+                className={`w-full p-3 text-sm border rounded-lg resize-none outline-none bg-white mb-1 ${
+                  catatanError ? "border-red-400 focus:ring-1 focus:ring-red-400" : "border-gray-200"
+                }`}
+                rows={3}
+                maxLength={500}
               />
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[11px] text-red-500">{catatanError}</p>
+                <p className="text-[10px] text-gray-400">{catatanInput.length}/500</p>
+              </div>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setConfirmAction(null)} className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900">Batal</button>
+                <button onClick={() => { setConfirmAction(null); setCatatanError(""); setCatatanInput(""); }} className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900">Batal</button>
                 <button
                   onClick={handleConfirm}
                   className={`flex items-center gap-1.5 px-4 py-1.5 rounded-[8px] text-xs font-semibold text-white transition-colors ${confirmAction === "Disetujui" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
@@ -714,7 +735,7 @@ function NewMutasiModal({ onClose, onSubmit }: {
               {/* Kondisi saat ini */}
               <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Kondisi Saat Ini</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div><p className="text-[10px] text-gray-400">Gedung</p><p className="text-xs font-semibold text-gray-800">{selectedAset.gedung}</p></div>
                   <div><p className="text-[10px] text-gray-400">Ruangan</p><p className="text-xs font-semibold text-gray-800">{selectedAset.ruangan}</p></div>
                   <div><p className="text-[10px] text-gray-400">PIC</p><p className="text-xs font-semibold text-gray-800">{selectedAset.pic}</p></div>
@@ -925,14 +946,504 @@ function NewMutasiModal({ onClose, onSubmit }: {
   );
 }
 
+// ── Helpers: date formatter ───────────────────────────────────────────────────
+function fmtDate(str: string): string {
+  if (!str) return "-";
+  const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return str;
+  return `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+}
+function fmtDateShort(str: string): string {
+  if (!str) return "-";
+  const BULAN = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return str;
+  return `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// ── Dialog Tolak ─────────────────────────────────────────────────────────────
+function RejectDialog({ onCancel, onConfirm }: {
+  onCancel: () => void;
+  onConfirm: (alasan: string) => void;
+}) {
+  const [alasan, setAlasan] = useState("");
+  const trimmed = alasan.trim();
+  const valid = trimmed.length >= 10 && trimmed.length <= 500;
+
+  return (
+    // Desktop: centered modal | Mobile: bottom sheet
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-2xl p-6 z-10">
+        {/* Icon — klik untuk tutup dialog */}
+        <button
+          onClick={onCancel}
+          className="w-10 h-10 rounded-lg border border-gray-200 flex items-center justify-center mb-4 hover:bg-gray-50 transition-colors"
+        >
+          <X size={18} className="text-gray-500" />
+        </button>
+        <h3 className="text-lg font-bold text-gray-900 mb-1">Tolak ajuan ini?</h3>
+        <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+          Berikan alasan singkat agar pengaju dapat melakukan perbaikan.
+        </p>
+        {/* Textarea */}
+        <textarea
+          value={alasan}
+          onChange={e => setAlasan(e.target.value)}
+          placeholder="Tuliskan alasan penolakan..."
+          rows={4}
+          maxLength={500}
+          className={`w-full p-3 text-sm border rounded-lg resize-none outline-none focus:ring-2 transition-shadow ${
+            alasan.trim().length > 0 && !valid
+              ? "border-red-300 focus:ring-red-100"
+              : "border-gray-200 focus:ring-blue-100 focus:border-blue-400"
+          }`}
+        />
+        <div className="flex items-center justify-between mt-1 mb-5">
+          {!valid && alasan.trim().length > 0 && alasan.trim().length < 10 ? (
+            <p className="text-[11px] text-red-500">Minimal 10 karakter diperlukan.</p>
+          ) : (
+            <span />
+          )}
+          <p className="text-[10px] text-gray-400 ml-auto">{alasan.length}/500</p>
+        </div>
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2.5 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            onClick={() => valid && onConfirm(trimmed)}
+            disabled={!valid}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${
+              valid
+                ? "bg-red-600 hover:bg-red-700 shadow-sm"
+                : "bg-red-300 cursor-not-allowed"
+            }`}
+          >
+            Konfirmasi tolak
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Verifikasi Panel ──────────────────────────────────────────────────────────
+function VerifikasiPanel({ data, onClose, onStatusChange }: {
+  data: MutasiRecord[];
+  onClose: () => void;
+  onStatusChange: (id: string, status: MutasiStatus, catatan?: string) => void;
+}) {
+  const menunggu = data.filter(d => d.status === "Menunggu");
+  const [selectedId, setSelectedId] = useState<string>(() => menunggu[0]?.id ?? "");
+  const [search, setSearch] = useState("");
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+
+  // Auto-select first after action
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return menunggu;
+    return menunggu.filter(r =>
+      r.aset.nama.toLowerCase().includes(q) ||
+      r.aset.kode.toLowerCase().includes(q) ||
+      r.id.toLowerCase().includes(q)
+    );
+  }, [menunggu, search]);
+
+  const selected = useMemo(() => filtered.find(r => r.id === selectedId) ?? filtered[0] ?? null, [filtered, selectedId]);
+
+  // After approve/reject, auto-select next
+  const handleApprove = () => {
+    if (!selected) return;
+    const nextIdx = filtered.findIndex(r => r.id === selected.id);
+    const next = filtered[nextIdx + 1] ?? filtered[nextIdx - 1] ?? null;
+    onStatusChange(selected.id, "Disetujui");
+    setSelectedId(next?.id ?? "");
+    setMobileView("list");
+  };
+
+  const handleReject = (alasan: string) => {
+    if (!selected) return;
+    const nextIdx = filtered.findIndex(r => r.id === selected.id);
+    const next = filtered[nextIdx + 1] ?? filtered[nextIdx - 1] ?? null;
+    onStatusChange(selected.id, "Ditolak", alasan);
+    setSelectedId(next?.id ?? "");
+    setShowRejectDialog(false);
+    setMobileView("list");
+  };
+
+  const selectCard = (r: MutasiRecord) => {
+    setSelectedId(r.id);
+    setMobileView("detail");
+  };
+
+  // ── Left panel: daftar ajuan ───────────────────────────────────────────────
+  const LeftPanel = (
+    <div className="flex flex-col h-full bg-white border-r border-gray-100 w-full sm:w-[248px] shrink-0">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 shrink-0">
+        <div className="flex items-center justify-between mb-0.5">
+          <span className="text-sm font-bold text-gray-900">Daftar ajuan</span>
+          <span className="min-w-[22px] h-[22px] rounded-full bg-gray-900 text-white text-[11px] font-bold flex items-center justify-center px-1.5">
+            {menunggu.length}
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500">{menunggu.length} ajuan perlu ditinjau</p>
+      </div>
+      {/* Search */}
+      <div className="px-4 pb-3 shrink-0">
+        <div className="flex items-center gap-2 h-9 px-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <Search size={13} className="text-gray-400 shrink-0" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Cari aset atau nomor..."
+            className="flex-1 bg-transparent text-xs outline-none placeholder:text-gray-400"
+          />
+          {search && (
+            <button onClick={() => setSearch("")}><X size={12} className="text-gray-400" /></button>
+          )}
+        </div>
+      </div>
+      {/* List */}
+      <div className="flex-1 overflow-y-auto space-y-2 px-3 pb-4">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-2 text-gray-400">
+            <AlertCircle size={28} className="text-gray-300" />
+            <p className="text-xs font-medium">Tidak ada pengajuan yang menunggu verifikasi</p>
+          </div>
+        ) : filtered.map(r => {
+          const isActive = r.id === (selected?.id ?? "");
+          // destination label
+          const dest = r.jenis === "Ganti PIC" ? r.tujuan.pic
+            : r.jenis === "Antar Unit" ? r.tujuan.unit
+            : r.tujuan.ruangan || r.tujuan.gedung;
+          return (
+            <button
+              key={r.id}
+              onClick={() => selectCard(r)}
+              className={`relative w-full text-left rounded-xl p-3 border transition-all ${
+                isActive
+                  ? "border-blue-200 bg-blue-50/60 shadow-sm"
+                  : "border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {/* Selected checkmark */}
+              {isActive && (
+                <div className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center">
+                  <Check size={9} className="text-white" />
+                </div>
+              )}
+              <p className="text-[10px] font-mono text-gray-400 mb-0.5">{r.id}</p>
+              <p className="text-sm font-semibold text-gray-900 pr-5">{r.aset.nama}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">{r.aset.kode} · {r.aset.tipe}</p>
+              <div className="flex items-center gap-1 mt-1.5">
+                <ArrowRight size={11} className="text-gray-400 shrink-0" />
+                <span className="text-[11px] font-medium text-gray-700 truncate">{dest}</span>
+              </div>
+              <div className="flex items-center gap-1 mt-1 text-gray-400">
+                <Calendar size={10} className="shrink-0" />
+                <span className="text-[10px]">{fmtDateShort(r.tglAjuan)}</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── Right panel: detail ajuan ──────────────────────────────────────────────
+  const RightPanel = selected ? (
+    <div className="flex flex-col flex-1 min-w-0 bg-white h-full">
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 pt-5 pb-2">
+          {/* Label + nomor + badge */}
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Detail ajuan</p>
+              <h2 className="text-2xl font-bold text-gray-900">{selected.id}</h2>
+            </div>
+            <span className="shrink-0 mt-1 flex items-center gap-1.5 px-3 py-1 rounded-full border border-amber-300 bg-white text-amber-700 text-xs font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Menunggu persetujuan
+            </span>
+          </div>
+
+          {/* Asset name + kode */}
+          <p className="text-xl font-bold text-gray-900 mb-0.5">{selected.aset.nama}</p>
+          <p className="text-sm text-gray-400 mb-5">{selected.aset.kode} · {selected.aset.tipe}</p>
+
+          {/* 3-column meta */}
+          <div className="grid grid-cols-3 gap-4 pb-5 border-b border-gray-100">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Nomor Ajuan</p>
+              <p className="text-sm font-semibold text-gray-900">{selected.id}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Tanggal Diajukan</p>
+              <p className="text-sm font-semibold text-gray-900">{fmtDate(selected.tglAjuan)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Diajukan Oleh</p>
+              <p className="text-sm font-semibold text-gray-900">{selected.pengaju}</p>
+            </div>
+          </div>
+
+          {/* Rute perpindahan */}
+          <div className="pt-5 pb-5 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-bold text-gray-900">Rute perpindahan</p>
+              <p className="text-[11px] text-gray-400">Pastikan lokasi sudah sesuai</p>
+            </div>
+            {/* Route cards — desktop side-by-side, mobile stacked */}
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-stretch">
+              {/* Asal */}
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2.5">Lokasi Asal</p>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Building size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                    <span className="text-sm text-gray-700 leading-snug">
+                      {selected.asal.gedung || "-"}
+                    </span>
+                  </div>
+                  {selected.asal.ruangan && selected.asal.ruangan !== "-" && (
+                    <div className="flex items-start gap-2">
+                      <MapPin size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                      <span className="text-sm text-gray-700 leading-snug">{selected.asal.ruangan}</span>
+                    </div>
+                  )}
+                  {selected.asal.pic && selected.asal.pic !== "-" && selected.jenis === "Ganti PIC" && (
+                    <div className="flex items-start gap-2">
+                      <User size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                      <span className="text-sm text-gray-700 leading-snug">{selected.asal.pic}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Arrow */}
+              <div className="flex sm:flex-col items-center justify-center py-1 sm:py-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
+                  <ArrowRight size={15} className="text-white sm:block hidden" />
+                  <ArrowRight size={15} className="text-white rotate-90 sm:hidden" />
+                </div>
+              </div>
+
+              {/* Tujuan */}
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-blue-400 mb-2.5">Lokasi & PIC Baru</p>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Building size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                    <span className="text-sm font-medium text-gray-900 leading-snug">
+                      {selected.tujuan.gedung || "-"}
+                    </span>
+                  </div>
+                  {selected.tujuan.ruangan && selected.tujuan.ruangan !== "-" && (
+                    <div className="flex items-start gap-2">
+                      <MapPin size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                      <span className="text-sm font-medium text-gray-900 leading-snug">{selected.tujuan.ruangan}</span>
+                    </div>
+                  )}
+                  {selected.tujuan.pic && selected.tujuan.pic !== "-" && (
+                    <div className="flex items-start gap-2">
+                      <User size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                      <span className="text-sm font-medium text-gray-900 leading-snug">{selected.tujuan.pic}</span>
+                    </div>
+                  )}
+                  {selected.jenis === "Antar Unit" && selected.tujuan.unit && (
+                    <div className="flex items-start gap-2">
+                      <Users size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                      <span className="text-sm font-medium text-gray-900 leading-snug">{selected.tujuan.unit}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Catatan pengaju (jika ada) */}
+          {selected.catatan && (
+            <div className="pt-5 pb-5 border-b border-gray-100">
+              <p className="text-sm font-bold text-gray-900 mb-2">Keterangan Pengaju</p>
+              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-3 border border-gray-100 leading-relaxed">
+                {selected.catatan}
+              </p>
+            </div>
+          )}
+
+          {/* Dokumen */}
+          {selected.dokumen.length > 0 && (
+            <div className="pt-5 pb-5 border-b border-gray-100">
+              <p className="text-sm font-bold text-gray-900 mb-2">Dokumen Pendukung</p>
+              <div className="space-y-2">
+                {selected.dokumen.map((dok, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
+                      <FileText size={14} className="text-red-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">{dok.nama}</p>
+                      <p className="text-[10px] text-gray-400">{dok.ukuran}</p>
+                    </div>
+                    <Download size={13} className="text-gray-400 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Timeline */}
+          <div className="pt-5 pb-5">
+            <p className="text-sm font-bold text-gray-900 mb-4">Timeline persetujuan</p>
+            <div className="space-y-0">
+              {selected.timeline.map((item, i) => {
+                const isLast = i === selected.timeline.length - 1;
+                const dotColor = !isLast ? "bg-gray-200"
+                  : selected.status === "Disetujui" ? "bg-green-500"
+                  : selected.status === "Ditolak"   ? "bg-red-500"
+                  : "bg-amber-400";
+                const iconEl = !isLast ? <div className="w-2 h-2 rounded-full bg-white" />
+                  : selected.status === "Disetujui" ? <Check size={9} className="text-white" />
+                  : selected.status === "Ditolak"   ? <X size={9} className="text-white" />
+                  : <Clock size={9} className="text-white" />;
+                return (
+                  <div key={i} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${dotColor}`}>
+                        {iconEl}
+                      </div>
+                      {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" style={{ minHeight: "20px" }} />}
+                    </div>
+                    <div className={`flex-1 min-w-0 ${isLast ? "pb-0" : "pb-4"}`}>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900">{item.status}</p>
+                        <span className="text-[11px] text-gray-400">oleh {item.oleh} · {item.tanggal}</span>
+                      </div>
+                      {item.catatan && (
+                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{item.catatan}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Decision bar — sticky bottom */}
+      <div className="shrink-0 px-6 py-4 border-t border-gray-100 bg-white">
+        <div className="flex items-center justify-between">
+          <div className="min-w-0 mr-4">
+            <p className="text-sm font-bold text-gray-900">Siap memberikan keputusan?</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Tindakan ini akan tercatat pada riwayat aset.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowRejectDialog(true)}
+              className="flex items-center gap-1.5 h-10 px-4 border border-red-300 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-50 transition-colors"
+            >
+              <X size={14} /> Tolak
+            </button>
+            <button
+              onClick={handleApprove}
+              className="flex items-center gap-1.5 h-10 px-5 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors shadow-sm"
+            >
+              <Check size={14} /> Setujui
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : (
+    /* Empty state right panel */
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400 bg-gray-50">
+      <CheckCircle2 size={44} className="text-gray-200" />
+      <p className="text-sm font-medium text-gray-500">Tidak ada pengajuan yang menunggu verifikasi</p>
+      <p className="text-xs">Semua pengajuan sudah diproses</p>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-stretch justify-center sm:items-center sm:p-4">
+        {/* Panel container */}
+        <div className="relative bg-white w-full sm:max-w-5xl sm:rounded-2xl sm:shadow-2xl flex flex-col overflow-hidden"
+          style={{ height: "100dvh", maxHeight: "calc(100dvh - 0px)" }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header bar */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0 bg-white z-10">
+            {/* Mobile: back button */}
+            {mobileView === "detail" ? (
+              <button
+                onClick={() => setMobileView("list")}
+                className="sm:hidden flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                ← Kembali
+              </button>
+            ) : (
+              <span className="sm:hidden text-sm font-bold text-gray-900">Verifikasi Mutasi</span>
+            )}
+            <span className="hidden sm:block text-sm font-bold text-gray-900">Verifikasi Mutasi Aset</span>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors ml-auto"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Body: two-column on sm+, single column on mobile */}
+          <div className="flex flex-1 min-h-0">
+            {/* Left: list — hidden on mobile when viewing detail */}
+            <div className={`${mobileView === "detail" ? "hidden sm:flex" : "flex"} sm:flex flex-col sm:w-[248px] w-full shrink-0 border-r border-gray-100`}>
+              {LeftPanel}
+            </div>
+            {/* Right: detail — hidden on mobile when viewing list */}
+            <div className={`${mobileView === "list" ? "hidden sm:flex" : "flex"} sm:flex flex-col flex-1 min-w-0`}>
+              {RightPanel}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Reject dialog (portaled above panel) */}
+      {showRejectDialog && (
+        <RejectDialog
+          onCancel={() => setShowRejectDialog(false)}
+          onConfirm={handleReject}
+        />
+      )}
+    </>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
   const store = useDataStore();
-  const [showNew, setShowNew]           = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<MutasiRecord | null>(null);
-  const [search, setSearch]             = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("Semua");
-  const [jenisFilter, setJenisFilter]   = useState<string>("Semua");
+  const role = store.currentUser?.role || "Admin Sistem";
+  const isPekerjaSO = role === "Pekerja Stock Opname";
+  const isAdminPusat = role === "Admin Pusat";
+  const isAdminSistem = role === "Admin Sistem";
+  const isPimpinan = role === "Pimpinan";
+  const canApprove = isAdminPusat || isAdminSistem;
+  const [showNew, setShowNew]                   = useState(false);
+  const [showVerifikasiPanel, setShowVerifikasiPanel] = useState(false);
+  const [drawerRecord, setDrawerRecord]         = useState<MutasiRecord | null>(null);
+  const [search, setSearch]                     = useState("");
+  const [statusFilter, setStatusFilter]         = useState<string>("Semua");
+  const [jenisFilter, setJenisFilter]           = useState<string>("Semua");
 
   const data = useMemo<MutasiRecord[]>(() => {
     if ((store.mutationRequests || []).length === 0) return [];
@@ -950,6 +1461,12 @@ export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
       const targetId = String(m.asset_id || "").trim().toLowerCase();
       const matchedAsset = assetMap.get(targetId);
       return mutasiToRecord(m, matchedAsset);
+    }).filter(record => {
+      // PSO can only see their own requests
+      if (isPekerjaSO) {
+        return record.pengaju === (store.currentUser?.nama || "");
+      }
+      return true;
     });
   }, [store.mutationRequests, store.assets]);
 
@@ -1040,31 +1557,53 @@ export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
       {topBar}
 
-      <div className="px-8 py-6 space-y-5">
+      <div className="px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-5 min-w-0">
         {/* Title + CTA */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-[#111827]">Mutasi Aset</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Kelola pemindahan lokasi, gedung, dan penanggung jawab aset.</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#111827]">Mutasi Aset</h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Kelola pemindahan lokasi, gedung, dan penanggung jawab aset.</p>
           </div>
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 h-10 px-5 bg-[#111827] text-white rounded-[8px] text-sm font-semibold hover:bg-[#1F2937] transition-colors shrink-0 shadow-sm"
-          >
-            <Plus size={16} /> Ajukan Mutasi
-          </button>
+          {/* Role-based CTA buttons */}
+          <div className="flex gap-2 shrink-0 self-start sm:self-auto">
+            {/* PSO and Admin Sistem can submit new mutations */}
+            {(isPekerjaSO || isAdminSistem) && (
+              <button
+                onClick={() => setShowNew(true)}
+                className="flex items-center gap-2 h-10 px-4 sm:px-5 bg-[#111827] text-white rounded-[8px] text-xs sm:text-sm font-semibold hover:bg-[#1F2937] transition-colors shadow-sm cursor-pointer"
+              >
+                <Plus size={16} /> Ajukan Mutasi
+              </button>
+            )}
+            {/* Admin Pusat and Admin Sistem can open verification panel */}
+            {canApprove && (
+              <button
+                onClick={() => setShowVerifikasiPanel(true)}
+                className="relative flex items-center gap-2 h-10 px-4 sm:px-5 bg-amber-600 text-white rounded-[8px] text-xs sm:text-sm font-semibold hover:bg-amber-700 transition-colors shadow-sm cursor-pointer"
+              >
+                <CheckCircle2 size={16} /> Verifikasi
+                {data.filter(d => d.status === "Menunggu").length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {data.filter(d => d.status === "Menunggu").length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {statCards.map(s => (
-            <div key={s.label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-medium text-gray-500">{s.label}</span>
-                <div className={`w-2 h-2 rounded-full ${s.dot}`} />
+            <div key={s.label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-5 min-w-0 transition-all hover:shadow-md flex flex-col justify-between">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <span className="text-xs font-medium text-gray-500 break-words flex-1 leading-snug">{s.label}</span>
+                <div className={`w-2 h-2 rounded-full ${s.dot} mt-1 shrink-0`} />
               </div>
-              <p className="text-3xl font-bold text-gray-900">{s.value}</p>
-              <p className="text-[11px] text-gray-400 mt-1">pengajuan tercatat</p>
+              <div className="min-w-0">
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 truncate" title={String(s.value)}>{s.value}</p>
+                <p className="text-[11px] text-gray-400 mt-1">pengajuan tercatat</p>
+              </div>
             </div>
           ))}
         </div>
@@ -1213,7 +1752,7 @@ export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
                     {/* Status */}
                     <td className="px-5 py-4"><StatusBadge status={d.status} /></td>
 
-                    {/* Aksi */}
+                    {/* Aksi — hanya Lihat Detail; approve/reject dilakukan lewat drawer */}
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
@@ -1223,24 +1762,6 @@ export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
                         >
                           <Eye size={15} />
                         </button>
-                        {d.status === "Menunggu" && (
-                          <>
-                            <button
-                              onClick={() => handleStatusChange(d.id, "Disetujui")}
-                              className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition-colors"
-                              title="Setujui"
-                            >
-                              <CheckCircle2 size={15} />
-                            </button>
-                            <button
-                              onClick={() => handleStatusChange(d.id, "Ditolak")}
-                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                              title="Tolak"
-                            >
-                              <XCircle size={15} />
-                            </button>
-                          </>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -1264,8 +1785,22 @@ export function MutasiPage({ topBar }: { topBar: React.ReactNode }) {
       </div>
 
       {/* Modals & Drawer */}
-      {showNew       && <NewMutasiModal onClose={() => setShowNew(false)} onSubmit={handleSubmit} />}
-      {drawerRecord  && <DetailDrawer  record={drawerRecord} onClose={() => setDrawerRecord(null)} onStatusChange={handleStatusChange} />}
+      {showNew && (isPekerjaSO || isAdminSistem) && <NewMutasiModal onClose={() => setShowNew(false)} onSubmit={handleSubmit} />}
+      {showVerifikasiPanel && (
+        <VerifikasiPanel
+          data={data}
+          onClose={() => setShowVerifikasiPanel(false)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
+      {drawerRecord && (
+        <DetailDrawer
+          record={drawerRecord}
+          onClose={() => setDrawerRecord(null)}
+          onStatusChange={handleStatusChange}
+          canApprove={canApprove}
+        />
+      )}
     </main>
   );
 }

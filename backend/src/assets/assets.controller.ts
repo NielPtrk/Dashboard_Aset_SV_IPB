@@ -1,6 +1,7 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query,
   UseGuards, UseInterceptors, UploadedFile, Res, StreamableFile, Req,
+  ForbiddenException,
 } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -40,6 +41,30 @@ export class AssetsController {
     return new StreamableFile(buffer);
   }
 
+  @Get("overview-summary")
+  @Roles("Admin Sistem", "Admin Pusat", "Pimpinan", "Pekerja Stock Opname")
+  getOverviewSummary() {
+    return this.service.getOverviewSummary();
+  }
+
+  @Get("room-assets")
+  @Roles("Admin Sistem", "Admin Pusat", "Pimpinan", "Pekerja Stock Opname")
+  getRoomAssets(
+    @Query("roomId") roomId?: string,
+    @Query("namaRuangan") namaRuangan?: string,
+    @Query("search") search?: string,
+    @Query("page") page = 1,
+    @Query("limit") limit = 10,
+  ) {
+    return this.service.getRoomAssets({
+      roomId,
+      namaRuangan,
+      search,
+      page: Number(page) || 1,
+      limit: Number(limit) || 10,
+    });
+  }
+
   @Get(":id")
   @Roles("Admin Sistem", "Admin Pusat", "Pimpinan", "Pekerja Stock Opname")
   findOne(@Param("id") id: string) {
@@ -65,7 +90,15 @@ export class AssetsController {
   }
 
   @Patch(":id")
-  update(@Param("id") id: string, @Body() body: Partial<Asset>) {
+  @Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname")
+  update(@Param("id") id: string, @Body() body: Partial<Asset>, @Req() req: any) {
+    if (req.user?.role === "Pekerja Stock Opname") {
+      const locKeys = ["nama_ruangan", "id_ruangan", "gedung", "nama_gedung", "ruangan", "lokasi"];
+      const hasLocationChange = locKeys.some(k => (body as any)[k] !== undefined);
+      if (hasLocationChange) {
+        throw new ForbiddenException("Pekerja Stock Opname tidak diperbolehkan memindahkan aset secara langsung. Silakan ajukan mutasi.");
+      }
+    }
     return this.service.update(id, body);
   }
 

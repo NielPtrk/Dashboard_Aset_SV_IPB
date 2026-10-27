@@ -21,6 +21,18 @@ export class Mutasi {
   @Column()
   asset_id: string;
 
+  @Column({ nullable: true })
+  kode_aset: string;
+
+  @Column({ nullable: true })
+  nama_aset: string;
+
+  @Column({ nullable: true })
+  nup: string;
+
+  @Column({ type: "text", nullable: true })
+  foto_bukti: string;
+
   @Column({ default: "Pindah Ruangan" })
   jenis: string; // "Pindah Gedung" | "Pindah Ruangan" | "Ganti PIC" | "Antar Unit"
 

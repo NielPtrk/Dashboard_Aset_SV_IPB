@@ -6,25 +6,45 @@ const SOCKET_URL = API_BASE_URL.replace("/api", "");
 
 let _socket: Socket | null = null;
 
-export function getSocket(): Socket {
+export function getSocket(): Socket | null {
+  if (typeof window === "undefined") return null;
+  const token = localStorage.getItem("access_token");
+  if (!token || localStorage.getItem("user_logged_out") === "true") {
+    if (_socket) {
+      _socket.disconnect();
+      _socket = null;
+    }
+    return null;
+  }
+
   if (!_socket) {
-    const token = localStorage.getItem("access_token");
     _socket = io(SOCKET_URL, {
       auth: { token },
       transports: ["websocket", "polling"],
       autoConnect: false,
     });
+  } else {
+    // Keep token up to date in handshake auth
+    _socket.auth = { token };
   }
   return _socket;
 }
 
 export function connectSocket(): void {
-  getSocket().connect();
+  const socket = getSocket();
+  if (socket && !socket.connected) {
+    socket.connect();
+  }
 }
 
 export function disconnectSocket(): void {
-  if (_socket?.connected) {
-    _socket.disconnect();
+  if (_socket) {
+    try {
+      _socket.disconnect();
+    } catch {
+      // ignore
+    }
+    _socket = null;
   }
 }
 
@@ -45,12 +65,16 @@ export function onEvent<T = unknown>(
   handler: (payload: T) => void,
 ): () => void {
   const socket = getSocket();
+  if (!socket) return () => {};
   socket.on(event, handler);
   return () => socket.off(event, handler);
 }
 
 export function emitEvent<T = unknown>(event: string, payload?: T): void {
-  getSocket().emit(event, payload);
+  const socket = getSocket();
+  if (socket && socket.connected) {
+    socket.emit(event, payload);
+  }
 }
 
 export default { getSocket, connectSocket, disconnectSocket, onEvent, emitEvent };

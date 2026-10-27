@@ -36,6 +36,11 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException("Role Pimpinan hanya memiliki hak baca (read-only).");
     }
 
+    // Role Pekerja Stock Opname is strictly forbidden from deleting any data
+    if (user.role === "Pekerja Stock Opname" && req.method === "DELETE") {
+      throw new ForbiddenException("Role Pekerja Stock Opname tidak memiliki izin untuk menghapus data.");
+    }
+
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),

@@ -23,6 +23,7 @@ export interface BulkSaveObservasiDto {
   unitKerja?: string;
   petugas?: string;
   items: Array<{
+    id?: string;
     noUrut?: number;
     kodeBarang?: string;
     namaBarang: string;
@@ -157,13 +158,84 @@ export class ObservasiService implements OnModuleInit {
     };
   }
 
-  async bulkSave(dto: BulkSaveObservasiDto) {
+  async bulkSave(dto: BulkSaveObservasiDto, user?: any) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    const isPekerjaSO = user?.role === "Pekerja Stock Opname";
+
     try {
-      // 1. Delete existing items for this room and year
+      if (isPekerjaSO) {
+        // For Pekerja Stock Opname: NEVER delete missing rows!
+        // Only insert new items or update existing items.
+        const existingItems = await queryRunner.manager.find(ObservasiItem, {
+          where: { ruanganId: dto.ruanganId, tahun: Number(dto.tahun) },
+        });
+
+        const saved: ObservasiItem[] = [];
+        for (let idx = 0; idx < (dto.items || []).length; idx++) {
+          const item = dto.items[idx];
+          const vol = Number(item.volume) || 1;
+          const harga = Number(item.hargaSatuan) || 0;
+          const total = item.jumlahHarga !== undefined ? Number(item.jumlahHarga) : harga * vol;
+
+          // Find match by id or by (kodeBarang + nup) or namaBarang
+          let match = item.id
+            ? existingItems.find(e => e.id === item.id)
+            : existingItems.find(e => e.kodeBarang && item.kodeBarang && e.kodeBarang === item.kodeBarang && e.nup === item.nup);
+
+          if (match) {
+            match.namaBarang = item.namaBarang || match.namaBarang;
+            match.kodeBarang = item.kodeBarang || match.kodeBarang;
+            match.nup = item.nup || match.nup;
+            match.merekType = item.merekType || match.merekType;
+            match.tahunPerolehan = item.tahunPerolehan || match.tahunPerolehan;
+            match.hargaSatuan = harga;
+            match.volume = vol;
+            match.satuan = item.satuan || match.satuan;
+            match.jumlahHarga = total;
+            match.sumberDana = item.sumberDana || match.sumberDana;
+            match.kondisi = item.kondisi || match.kondisi;
+            match.penguasaan = item.penguasaan || match.penguasaan;
+            match.keterangan = item.keterangan || match.keterangan;
+            const res = await queryRunner.manager.save(ObservasiItem, match);
+            saved.push(res);
+          } else {
+            const entity = new ObservasiItem();
+            entity.ruanganId = dto.ruanganId;
+            entity.tahun = Number(dto.tahun);
+            entity.kampus = dto.kampus || "";
+            entity.namaGedung = dto.namaGedung || "";
+            entity.kodeRuangan = dto.kodeRuangan || "";
+            entity.namaRuangan = dto.namaRuangan || "";
+            entity.unitKerja = dto.unitKerja || "Sekolah Vokasi (SV)";
+            entity.petugas = dto.petugas || user?.nama || "Petugas Lapangan";
+            entity.noUrut = item.noUrut || existingItems.length + saved.length + 1;
+            entity.kodeBarang = item.kodeBarang || "";
+            entity.namaBarang = item.namaBarang;
+            entity.nup = item.nup || "";
+            entity.merekType = item.merekType || "";
+            entity.tahunPerolehan = item.tahunPerolehan || "";
+            entity.hargaSatuan = harga;
+            entity.volume = vol;
+            entity.satuan = item.satuan || "unit";
+            entity.jumlahHarga = total;
+            entity.sumberDana = item.sumberDana || "Tidak Diketahui";
+            entity.kondisi = item.kondisi || "Baik";
+            entity.penguasaan = item.penguasaan || "Milik Sendiri";
+            entity.keterangan = item.keterangan || "";
+            entity.status = "Tersimpan";
+            const res = await queryRunner.manager.save(ObservasiItem, entity);
+            saved.push(res);
+          }
+        }
+
+        await queryRunner.commitTransaction();
+        return { success: true, count: saved.length, data: saved };
+      }
+
+      // 1. Delete existing items for this room and year (Admin Pusat and Admin Sistem only)
       await queryRunner.manager.delete(ObservasiItem, {
         ruanganId: dto.ruanganId,
         tahun: Number(dto.tahun),

@@ -70,6 +70,9 @@ export interface MutationRequest {
   id: string;
   nomor_mutasi?: string;
   asset_id: string;
+  kode_aset?: string;
+  nama_aset?: string;
+  nup?: string;
   jenis?: string;
   tanggal: string;
   tgl_ajuan?: string;
@@ -88,6 +91,8 @@ export interface MutationRequest {
   catatan_approver?: string;
   tanggal_approval?: string;
   dokumen?: Array<{ nama: string; ukuran: string; url?: string }>;
+  foto_bukti?: string;
+  sumber?: "so" | "manual";
 }
 
 export interface ProcurementRequest {
@@ -973,6 +978,7 @@ interface DataStoreContextType {
   rooms: RoomRecord[];
   ruangan: RuanganData[];
   observasiItems: ObservasiItem[];
+  fetchMutasi: () => Promise<void>;
   fetchRuangan: () => Promise<void>;
   fetchObservasi: (tahun?: number) => Promise<void>;
   getGedungList: (kampus?: string) => string[];
@@ -1046,8 +1052,9 @@ interface DataStoreContextType {
   computeProcurementNeed: () => Asset[];
   computeReplacementCandidates: (limit?: number) => Asset[];
 
-  currentUser: UserRecord;
-  setCurrentUser: (u: UserRecord) => void;
+  currentUser: UserRecord | null;
+  setCurrentUser: (u: UserRecord | null) => void;
+  clearSession: () => void;
   addUser: (payload: Partial<UserRecord> & { nama: string; email: string; role?: UserRole }) => Promise<UserRecord>;
   updateUser: (id: string, updates: Partial<UserRecord>) => Promise<UserRecord>;
   updateUserRole: (id: string, newRole: UserRole) => Promise<UserRecord>;
@@ -1066,6 +1073,7 @@ interface DataStoreContextType {
   createMutation: (payload: Partial<MutationRequest>, opts?: { user?: string }) => Promise<MutationRequest | undefined>;
   approveMutation: (id: string, opts?: { user?: string; catatan?: string }) => Promise<void>;
   rejectMutation: (id: string, opts?: { user?: string; catatan?: string }) => Promise<void>;
+  cancelMutation: (id: string, opts?: { user?: string }) => Promise<void>;
   completeProcurement: (id: string, newAsset?: Asset, opts?: { user?: string }) => void;
   uploadDocument: (doc: DocumentRecord, opts?: { user?: string }) => void;
   appendActivity: (log: Omit<ActivityLog, "id" | "waktu" | "tgl">) => void;
@@ -1123,32 +1131,36 @@ function loadStoredUsers(): UserRecord[] {
   return SEED_USERS;
 }
 
-function getInitialCurrentUser(): UserRecord {
+function getInitialCurrentUser(): UserRecord | null {
   if (typeof localStorage !== "undefined") {
-    try {
-      const saved = localStorage.getItem("current_user");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.nama && parsed.email) {
-          return {
-            id: parsed.id || "U-001",
-            nama: parsed.nama,
-            email: parsed.email,
-            role: (parsed.role as UserRole) || "Admin Sistem",
-            unit: parsed.unit || "Sekolah Vokasi (SV)",
-            aktif: parsed.aktif ?? true,
-            status: parsed.status || "aktif",
-          };
+    const hasToken = !!localStorage.getItem("access_token");
+    const isLoggedOut = localStorage.getItem("user_logged_out") === "true";
+    if (hasToken && !isLoggedOut) {
+      try {
+        const saved = localStorage.getItem("current_user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.nama && parsed.email) {
+            return {
+              id: parsed.id || "U-001",
+              nama: parsed.nama,
+              email: parsed.email,
+              role: (parsed.role as UserRole) || "Admin Sistem",
+              unit: parsed.unit || "Sekolah Vokasi (SV)",
+              aktif: parsed.aktif ?? true,
+              status: parsed.status || "aktif",
+            };
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
   }
-  return SEED_USERS[0];
+  return null;
 }
 
-const CURRENT_USER = { nama: "Othniel Patrick Limbong", role: "Admin Sistem" };
+const CURRENT_USER = { nama: "Pengguna", role: "Admin Sistem" as UserRole };
 
 export function DataStoreProvider({ children }: { children: React.ReactNode }) {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -1159,7 +1171,7 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => loadStoredActivityLogs());
   const [users, setUsers] = useState<UserRecord[]>(() => loadStoredUsers());
-  const [currentUser, setCurrentUserState] = useState<UserRecord>(() => getInitialCurrentUser());
+  const [currentUser, setCurrentUserState] = useState<UserRecord | null>(() => getInitialCurrentUser());
   const [rooms] = useState<RoomRecord[]>(SEED_ROOMS);
   const [ruangan, setRuangan] = useState<RuanganData[]>(SEED_RUANGAN);
   const [observasiItems, setObservasiItems] = useState<ObservasiItem[]>([]);
@@ -1167,12 +1179,40 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
   const [filters, setFiltersState] = useState<Filters>(DEFAULT_FILTERS);
   const [pendingNav, setPendingNav] = useState<NavigationIntent | null>(null);
 
-  const setCurrentUser = useCallback((u: UserRecord) => {
+  const setCurrentUser = useCallback((u: UserRecord | null) => {
     setCurrentUserState(u);
-    localStorage.setItem("current_user", JSON.stringify(u));
+    if (u) {
+      localStorage.setItem("current_user", JSON.stringify(u));
+    } else {
+      localStorage.removeItem("current_user");
+    }
   }, []);
 
+  const clearSession = useCallback(() => {
+    setCurrentUserState(null);
+    setAssets([]);
+    setMaintenanceTickets([]);
+    setMutationRequests([]);
+    setProcurementRequests([]);
+    setStockOpnameRecords([]);
+    setDocuments([]);
+    setObservasiItems([]);
+  }, []);
+
+  useEffect(() => {
+    const handleAuthReset = () => {
+      clearSession();
+    };
+    window.addEventListener("auth:logout", handleAuthReset);
+    window.addEventListener("auth:session_expired", handleAuthReset);
+    return () => {
+      window.removeEventListener("auth:logout", handleAuthReset);
+      window.removeEventListener("auth:session_expired", handleAuthReset);
+    };
+  }, [clearSession]);
+
   const fetchUsers = useCallback(async () => {
+    if (!localStorage.getItem("access_token")) return;
     try {
       const res = await apiClient.get<{ data: any[]; total: number }>("/users", { params: { limit: 500 } });
       if (Array.isArray(res.data?.data)) {
@@ -1644,8 +1684,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
   // Seed Fallback has been removed.
 
   // ── API bridge — silently hydrate from NestJS when backend is reachable ─────
-  // Falls back to local seed data automatically when backend is offline.
+  // ONLY runs when an authenticated user session exists.
   useEffect(() => {
+    if (!currentUser || !localStorage.getItem("access_token")) {
+      return;
+    }
     let cancelled = false;
     async function hydrate() {
       try {
@@ -1793,10 +1836,14 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     }
     hydrate();
     return () => { cancelled = true; };
-  }, [fetchUsers]);
+  }, [currentUser, fetchUsers]);
 
-  // ── Socket.IO — apply real-time mutations from the NestJS gateway ───────────
+  // ── Socket.IO — apply real-time mutations ONLY when authenticated ───────────
   useEffect(() => {
+    if (!currentUser || !localStorage.getItem("access_token")) {
+      disconnectSocket();
+      return;
+    }
     connectSocket();
     const offs = [
       onEvent<Asset>("asset:created", (a) => setAssets((p) => [...p, a])),
@@ -1804,8 +1851,12 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
         setAssets((p) => p.map((x) => (x.id === a.id ? a : x)))),
       onEvent<{ id: string }>("asset:deleted", ({ id }) =>
         setAssets((p) => p.filter((x) => x.id !== id))),
-      onEvent<MutationRequest>("mutasi:status_changed", (m: any) => {
+      onEvent<MutationRequest & { deleted?: boolean }>("mutasi:status_changed", (m: any) => {
         const id = m.nomor_mutasi || m.id;
+        if (m.deleted || m.status === "Dihapus") {
+          setMutationRequests((p) => p.filter((x) => x.id !== id && x.nomor_mutasi !== id));
+          return;
+        }
         const normalized: MutationRequest = { ...m, id, nomor_mutasi: id };
         setMutationRequests((p) => {
           const exists = p.some((x) => x.id === id || (x.nomor_mutasi && x.nomor_mutasi === id));
@@ -1826,7 +1877,7 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
       offs.forEach((off) => off());
       disconnectSocket();
     };
-  }, []);
+  }, [currentUser]);
 
   const setFilters = useCallback((next: Partial<Filters>) => {
     setFiltersState((prev) => ({ ...prev, ...next }));
@@ -2426,35 +2477,54 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     [appendActivity],
   );
 
+  const fetchMutasi = useCallback(async () => {
+    try {
+      const res = await apiClient.get<{ data: MutationRequest[] }>("/mutasi", { params: { limit: 99999 } });
+      if (Array.isArray(res.data?.data)) {
+        setMutationRequests(
+          res.data.data.map((m: any) => ({
+            ...m,
+            id: m.nomor_mutasi || m.id,
+            nomor_mutasi: m.nomor_mutasi || m.id,
+          }))
+        );
+      }
+    } catch (err) {
+      console.error("Gagal mengambil data mutasi segar dari server:", err);
+    }
+  }, []);
+
   const approveMutation = useCallback(
     async (id: string, opts?: { user?: string; catatan?: string }) => {
-      const user = opts?.user || CURRENT_USER.nama;
+      const user = opts?.user || currentUser?.nama || CURRENT_USER.nama;
       let target: MutationRequest | undefined;
 
-      try {
-        const { data } = await apiClient.patch<{ mutasi: any; asset?: any; message: string }>(
-          `/mutasi/${id}/approve`,
-          { approver: user, catatan: opts?.catatan },
+      // Authoritative API call to backend — will throw on 409 Conflict or 400 error
+      const { data } = await apiClient.patch<{ mutasi: any; asset?: any; message: string }>(
+        `/mutasi/${id}/approve`,
+        { approver: user, catatan: opts?.catatan },
+      );
+
+      if (data?.mutasi) {
+        target = {
+          ...data.mutasi,
+          id: data.mutasi.nomor_mutasi || data.mutasi.id,
+          nomor_mutasi: data.mutasi.nomor_mutasi || data.mutasi.id,
+          status: "Disetujui",
+          approver: data.mutasi.approver || user,
+          catatan_approver: data.mutasi.catatan_approver || opts?.catatan,
+          tanggal_approval: data.mutasi.tanggal_approval || new Date().toISOString(),
+        };
+      }
+
+      if (data?.asset) {
+        setAssets((prev) =>
+          prev.map((a) =>
+            a.id === data.asset.id || a.kode_tag_aset === data.asset.kode_tag_aset
+              ? { ...a, ...data.asset }
+              : a,
+          ),
         );
-        if (data?.mutasi) {
-          target = {
-            ...data.mutasi,
-            id: data.mutasi.nomor_mutasi || data.mutasi.id,
-            nomor_mutasi: data.mutasi.nomor_mutasi || data.mutasi.id,
-            status: "Disetujui",
-          };
-        }
-        if (data?.asset) {
-          setAssets((prev) =>
-            prev.map((a) =>
-              a.id === data.asset.id || a.kode_tag_aset === data.asset.kode_tag_aset
-                ? { ...a, ...data.asset }
-                : a,
-            ),
-          );
-        }
-      } catch (err) {
-        console.warn("Backend approve API failed, falling back to local update", err);
       }
 
       setMutationRequests((prev) =>
@@ -2462,10 +2532,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
           if (m.id === id || m.nomor_mutasi === id) {
             target = {
               ...m,
+              ...(target || {}),
               status: "Disetujui",
               approver: user,
               catatan_approver: opts?.catatan || m.catatan_approver,
-              tanggal_approval: new Date().toISOString(),
+              tanggal_approval: target?.tanggal_approval || new Date().toISOString(),
             };
             return target;
           }
@@ -2493,41 +2564,70 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
               : a,
           ),
         );
+        const diffDesc = `${target.dari_ruangan || "Asal"} → ${target.ke_ruangan || "Tujuan"}`;
         appendActivity({
           pengguna: user,
-          role: CURRENT_USER.role,
+          role: currentUser?.role || CURRENT_USER.role,
           menu: "Mutasi",
-          aksi: `Menyetujui mutasi ${id} (aset ${target.asset_id})`,
+          aksi: `Menyetujui mutasi ${id} (aset ${target.asset_id}) — Lokasi baru: ${diffDesc}`,
           target_type: "Asset",
           target_id: target.asset_id,
+          field_changed: "Lokasi Ruangan",
+          old_value: target.dari_ruangan,
+          new_value: target.ke_ruangan,
+          diffs: [
+            {
+              field: "nama_ruangan",
+              label: "Lokasi Ruangan",
+              oldVal: `${target.dari_gedung ? target.dari_gedung + " - " : ""}${target.dari_ruangan}`,
+              newVal: `${target.ke_gedung ? target.ke_gedung + " - " : ""}${target.ke_ruangan}`,
+            },
+          ],
+          items_detail: [
+            {
+              id: target.asset_id,
+              kode: target.kode_aset || target.asset_id,
+              nama: target.nama_aset || target.asset_id,
+              ruangan: target.ke_ruangan,
+              diffs: [
+                {
+                  field: "nama_ruangan",
+                  label: "Lokasi Ruangan",
+                  oldVal: `${target.dari_gedung ? target.dari_gedung + " - " : ""}${target.dari_ruangan}`,
+                  newVal: `${target.ke_gedung ? target.ke_gedung + " - " : ""}${target.ke_ruangan}`,
+                },
+              ],
+            },
+          ],
           status: "Berhasil",
-          jenis: "mutasi",
+          jenis: "update",
         });
       }
     },
-    [appendActivity],
+    [appendActivity, currentUser?.nama, currentUser?.role],
   );
 
   const rejectMutation = useCallback(
     async (id: string, opts?: { user?: string; catatan?: string }) => {
-      const user = opts?.user || CURRENT_USER.nama;
+      const user = opts?.user || currentUser?.nama || CURRENT_USER.nama;
       let target: MutationRequest | undefined;
 
-      try {
-        const { data } = await apiClient.patch<{ mutasi: any; message: string }>(
-          `/mutasi/${id}/reject`,
-          { approver: user, catatan: opts?.catatan },
-        );
-        if (data?.mutasi) {
-          target = {
-            ...data.mutasi,
-            id: data.mutasi.nomor_mutasi || data.mutasi.id,
-            nomor_mutasi: data.mutasi.nomor_mutasi || data.mutasi.id,
-            status: "Ditolak",
-          };
-        }
-      } catch (err) {
-        console.warn("Backend reject API failed, falling back to local update", err);
+      // Authoritative API call to backend — will throw on 409 Conflict or 400 error
+      const { data } = await apiClient.patch<{ mutasi: any; message: string }>(
+        `/mutasi/${id}/reject`,
+        { approver: user, catatan: opts?.catatan },
+      );
+
+      if (data?.mutasi) {
+        target = {
+          ...data.mutasi,
+          id: data.mutasi.nomor_mutasi || data.mutasi.id,
+          nomor_mutasi: data.mutasi.nomor_mutasi || data.mutasi.id,
+          status: "Ditolak",
+          approver: data.mutasi.approver || user,
+          catatan_approver: data.mutasi.catatan_approver || opts?.catatan,
+          tanggal_approval: data.mutasi.tanggal_approval || new Date().toISOString(),
+        };
       }
 
       setMutationRequests((prev) =>
@@ -2535,10 +2635,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
           if (m.id === id || m.nomor_mutasi === id) {
             target = {
               ...m,
+              ...(target || {}),
               status: "Ditolak",
               approver: user,
               catatan_approver: opts?.catatan || m.catatan_approver,
-              tanggal_approval: new Date().toISOString(),
+              tanggal_approval: target?.tanggal_approval || new Date().toISOString(),
             };
             return target;
           }
@@ -2549,9 +2650,9 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
       if (target) {
         appendActivity({
           pengguna: user,
-          role: CURRENT_USER.role,
+          role: currentUser?.role || CURRENT_USER.role,
           menu: "Mutasi",
-          aksi: `Menolak mutasi ${id} (aset ${target.asset_id})`,
+          aksi: `Menolak mutasi ${id} (aset ${target.asset_id})${opts?.catatan ? ` — Alasan: ${opts.catatan}` : ""}`,
           target_type: "Asset",
           target_id: target.asset_id,
           status: "Berhasil",
@@ -2559,7 +2660,38 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [appendActivity],
+    [appendActivity, currentUser?.nama, currentUser?.role],
+  );
+
+  const cancelMutation = useCallback(
+    async (id: string, opts?: { user?: string }) => {
+      const user = opts?.user || currentUser?.nama || CURRENT_USER.nama;
+      let target: MutationRequest | undefined = mutationRequests.find(
+        (m) => m.id === id || m.nomor_mutasi === id,
+      );
+
+      try {
+        await apiClient.delete(`/mutasi/${id}`);
+      } catch (err) {
+        console.warn("Backend delete mutation failed, falling back to local update", err);
+      }
+
+      setMutationRequests((prev) => prev.filter((m) => m.id !== id && m.nomor_mutasi !== id));
+
+      if (target) {
+        appendActivity({
+          pengguna: user,
+          role: currentUser?.role || CURRENT_USER.role,
+          menu: "Mutasi",
+          aksi: `Membatalkan pengajuan mutasi ${id} (aset ${target.asset_id})`,
+          target_type: "Asset",
+          target_id: target.asset_id,
+          status: "Berhasil",
+          jenis: "mutasi",
+        });
+      }
+    },
+    [appendActivity, currentUser?.nama, currentUser?.role, mutationRequests],
   );
 
   const completeProcurement = useCallback(
@@ -2627,6 +2759,18 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
         });
         const saved = Array.isArray(res.data?.data) ? res.data.data : [];
         setObservasiItems((prev) => {
+          if (currentUser?.role === "Pekerja Stock Opname") {
+            const savedMap = new Set(saved.map((s) => s.id || `${s.kodeBarang}_${s.nup}`));
+            const filtered = prev.filter(
+              (it) =>
+                !(
+                  it.ruanganId === ruanganId &&
+                  Number(it.tahun) === yearNum &&
+                  savedMap.has(it.id || `${it.kodeBarang}_${it.nup}`)
+                ),
+            );
+            return [...filtered, ...saved];
+          }
           const filtered = prev.filter((it) => !(it.ruanganId === ruanganId && Number(it.tahun) === yearNum));
           return [...filtered, ...saved];
         });
@@ -2930,6 +3074,7 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     computeReplacementCandidates,
     currentUser,
     setCurrentUser,
+    clearSession,
     fetchUsers,
     addUser,
     updateUser,
@@ -2944,9 +3089,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     recordStockOpname,
     revertStockOpname,
     completeMaintenance,
+    fetchMutasi,
     createMutation,
     approveMutation,
     rejectMutation,
+    cancelMutation,
     completeProcurement,
     uploadDocument,
     appendActivity,

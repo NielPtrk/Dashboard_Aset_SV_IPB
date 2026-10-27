@@ -51,6 +51,16 @@ export class StorageController {
     return { url };
   }
 
+  @Get("file/:bucket/:storedName")
+  async getFile(
+    @Query("storedName") storedName: string,
+    @Query("bucket") bucket = "documents",
+  ) {
+    // Generates a short-lived signed URL (300 seconds / 5 mins) for verified authenticated sessions
+    const url = await this.storage.getPresignedUrl(bucket, storedName, 300);
+    return { url };
+  }
+
   @Delete("object")
   async remove(
     @Query("storedName") storedName: string,

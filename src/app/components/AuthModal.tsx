@@ -16,6 +16,8 @@ interface AuthModalProps {
   onClose?: () => void;
   initialMode?: AuthMode;
   initialToken?: string;
+  sessionExpiredMsg?: string | null;
+  onSuccess?: () => void;
 }
 
 export function AuthModal({
@@ -23,6 +25,8 @@ export function AuthModal({
   onClose,
   initialMode = "login",
   initialToken,
+  sessionExpiredMsg,
+  onSuccess,
 }: AuthModalProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [token, setToken] = useState<string>(initialToken || "");
@@ -121,6 +125,7 @@ export function AuthModal({
       }));
 
       showToast(`Selamat datang, ${user.nama}!`, "success");
+      onSuccess?.();
       onClose?.();
     } catch (err: any) {
       const msg =
@@ -315,6 +320,16 @@ export function AuthModal({
               </p>
             </div>
 
+            {sessionExpiredMsg && (
+              <div className="mt-4 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 animate-in fade-in">
+                <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold block text-amber-950 mb-0.5">Sesi Anda Telah Berakhir</span>
+                  {sessionExpiredMsg}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleLogin} className="mt-6 space-y-4">
               {/* Email Input */}
               <div>
@@ -489,7 +504,7 @@ export function AuthModal({
               </div>
 
               {/* Unit Kerja & Harapan Role */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-[#0F172A] mb-1.5">
                     Unit Kerja *
