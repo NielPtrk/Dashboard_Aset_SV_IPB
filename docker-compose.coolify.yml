@@ -31,6 +31,7 @@ services:
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-aset_secret_db_pass}
       DB_NAME: ${DB_NAME:-aset_sv_ipb}
+      DB_SYNCHRONIZE: ${DB_SYNCHRONIZE:-true}
       FRONTEND_URL: ${FRONTEND_URL}
       JWT_SECRET: ${JWT_SECRET:-ganti_dengan_random_jwt_secret_panjang}
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY}

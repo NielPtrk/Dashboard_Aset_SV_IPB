@@ -37,7 +37,7 @@ import { RolesGuard } from "./auth/guards/roles.guard";
         username: cfg.get("DB_USER", "postgres"),
         password: cfg.get("DB_PASSWORD", ""),
         autoLoadEntities: true,
-        synchronize: cfg.get("NODE_ENV") !== "production",
+        synchronize: cfg.get("DB_SYNCHRONIZE") !== "false",
         logging: cfg.get("NODE_ENV") === "development",
       }),
     }),
