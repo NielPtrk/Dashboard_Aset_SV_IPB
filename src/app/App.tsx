@@ -220,8 +220,12 @@ function Sidebar({
 
   return (
     <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-2 mb-3">
+      {/* Brand — klik logo kembali ke Overview */}
+      <div
+        className="flex items-center gap-2.5 px-2 mb-3 cursor-pointer rounded-lg hover:bg-gray-50 transition-colors"
+        onClick={() => setPage("ringkasan")}
+        title="Kembali ke Overview"
+      >
         <Logo />
         <div>
           <div className="text-base font-bold text-gray-900 leading-tight">Aset SV IPB</div>
@@ -1392,7 +1396,7 @@ const DASH_SUBPAGES: Record<string, { title: string; tabs: string[] }> = {
 };
 
 // ── Main Content ──────────────────────────────────────────────────────────────
-function MainContent({ page }: { page: string }) {
+function MainContent({ page, onOpenAuth }: { page: string; onOpenAuth: (mode?: AuthMode) => void }) {
   const { theme, setTheme, tableDensity, setTableDensity, showToast, userProfile } = useApp();
 
   const PAGE_TITLES: Record<string, string> = {
@@ -1453,7 +1457,7 @@ function MainContent({ page }: { page: string }) {
   else currentBreadcrumbs = [page];
 
   if (page === "ringkasan") {
-    return <OverviewPage topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} />;
+    return <OverviewPage topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} onOpenAuth={onOpenAuth} />;
   }
 
   if (page === "profile") {
@@ -1861,7 +1865,7 @@ class ErrorBoundary extends React.Component<
 
 // ── App ───────────────────────────────────────────────────────────────────────
 function AppContent() {
-  const [page, setPage] = useState("dash-analitik");
+  const [page, setPage] = useState("ringkasan");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<AuthMode>("login");
@@ -1906,6 +1910,25 @@ function AppContent() {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   };
+
+  // Auto-open login popup if user has no session on first load
+  const { currentUser } = useDataStore();
+  const [hasPromptedAuth, setHasPromptedAuth] = useState(false);
+  useEffect(() => {
+    if (hasPromptedAuth) return;
+    const token = localStorage.getItem("access_token");
+    if (!token && !currentUser) {
+      // Small delay so app has time to render before showing modal
+      const t = setTimeout(() => {
+        setAuthModalMode("login");
+        setAuthModalOpen(true);
+        setHasPromptedAuth(true);
+      }, 400);
+      return () => clearTimeout(t);
+    } else {
+      setHasPromptedAuth(true);
+    }
+  }, [currentUser, hasPromptedAuth]);
 
   return (
     <div className="flex h-screen w-full bg-white overflow-hidden relative font-sans">
@@ -1968,7 +1991,7 @@ function AppContent() {
 
         {/* Kontainer Render Halaman */}
         <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden w-full">
-          <MainContent page={page} />
+          <MainContent page={page} onOpenAuth={handleOpenAuth} />
         </main>
       </div>
 

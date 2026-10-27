@@ -11,7 +11,7 @@ import {
   ArrowLeft,
   Search,
   X,
-  ArrowUpDown,
+  Filter,
   Info,
   Package,
   ExternalLink,
@@ -158,9 +158,23 @@ export function OverviewPage({
   // Active room detail modal/drawer (Level 4)
   const [detailRoom, setDetailRoom] = useState<AggregatedRoom | null>(null);
 
-  // Room list search & sort state (Level 3)
+  // Room list search & category filter state (Level 3)
   const [roomSearchQuery, setRoomSearchQuery] = useState("");
-  const [roomSortBy, setRoomSortBy] = useState<"nilai-desc" | "nilai-asc" | "aset-desc" | "aset-asc" | "nama-asc">("nilai-desc");
+  const [selectedCategory, setSelectedCategory] = useState<string>("Semua");
+  const [roomPage, setRoomPage] = useState<number>(1);
+  const roomPageSize = 10;
+
+  // Reset category filter & room page when navigating back or switching buildings/campuses
+  useEffect(() => {
+    setSelectedCategory("Semua");
+    setRoomSearchQuery("");
+    setRoomPage(1);
+  }, [selectedBuilding, selectedCampus]);
+
+  // Sync latest rooms from server on mount
+  useEffect(() => {
+    store.fetchRuangan?.();
+  }, []);
 
   // Detail Drawer asset list search & pagination
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
@@ -404,11 +418,45 @@ export function OverviewPage({
     return activeCampusObj.buildings.find(b => b.namaGedung === selectedBuilding) || null;
   }, [activeCampusObj, selectedBuilding]);
 
+  // Category options dynamically sourced from masterRooms (same source as Lokasi & Ruangan)
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    const BASELINE_CATEGORIES = [
+      "Gudang",
+      "Kamar Mandi/Toilet",
+      "Mushola",
+      "Ruang Arsip",
+      "Ruang Dosen",
+      "Ruang Kuliah",
+      "Ruang Laboratorium Kering",
+      "Ruang Panel/R. Server",
+      "Ruang Pantry/Dapur",
+      "Ruang Pimpinan (Dekan/Wadek/Sekretaris/Kepala/Kadep dst..)",
+      "Ruang Rapat",
+      "Ruang Sekretariat",
+      "Ruang Studio Mini/Video Confrence",
+      "Ruang Tamu",
+    ];
+    BASELINE_CATEGORIES.forEach(c => set.add(c));
+    masterRooms.forEach(r => {
+      if (r.kategori && r.kategori.trim()) {
+        set.add(r.kategori.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "id"));
+  }, [masterRooms]);
+
   // Filtered & sorted rooms for Level 3
-  const displayedRooms = useMemo(() => {
+  const filteredRooms = useMemo(() => {
     if (!activeBuildingObj) return [];
     let list = [...activeBuildingObj.rooms];
 
+    // Filter by category
+    if (selectedCategory && selectedCategory !== "Semua") {
+      list = list.filter(r => r.kategori === selectedCategory);
+    }
+
+    // Filter by search query
     if (roomSearchQuery.trim()) {
       const q = roomSearchQuery.toLowerCase().trim();
       list = list.filter(r =>
@@ -418,17 +466,24 @@ export function OverviewPage({
       );
     }
 
-    list.sort((a, b) => {
-      if (roomSortBy === "nilai-desc") return b.totalValue - a.totalValue;
-      if (roomSortBy === "nilai-asc") return a.totalValue - b.totalValue;
-      if (roomSortBy === "aset-desc") return b.bmnCount - a.bmnCount;
-      if (roomSortBy === "aset-asc") return a.bmnCount - b.bmnCount;
-      if (roomSortBy === "nama-asc") return a.namaRuangan.localeCompare(b.namaRuangan);
-      return 0;
-    });
+    // Default sorting: Nilai Aset Tertinggi (highest acquisition value first)
+    list.sort((a, b) => b.totalValue - a.totalValue);
 
     return list;
-  }, [activeBuildingObj, roomSearchQuery, roomSortBy]);
+  }, [activeBuildingObj, selectedCategory, roomSearchQuery]);
+
+  const totalRoomPages = Math.ceil(filteredRooms.length / roomPageSize) || 1;
+  const paginatedRooms = useMemo(() => {
+    const start = (roomPage - 1) * roomPageSize;
+    return filteredRooms.slice(start, start + roomPageSize);
+  }, [filteredRooms, roomPage, roomPageSize]);
+
+  // Reset page if out of bounds
+  useEffect(() => {
+    if (roomPage > totalRoomPages) {
+      setRoomPage(1);
+    }
+  }, [totalRoomPages, roomPage]);
 
   // Filtered assets inside detail drawer (Level 4)
   const detailRoomFilteredAssets = useMemo(() => {
@@ -686,25 +741,13 @@ export function OverviewPage({
         <section className="space-y-4">
 
           {/* Section Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                Lokasi & Ruangan
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                Telusuri sebaran aset dan nilai perolehan per kampus, gedung, hingga inventaris ruangan.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: "lokasi" } }));
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-white border border-slate-200/90 hover:border-slate-300 text-slate-700 text-xs sm:text-sm font-semibold rounded-xl shadow-2xs hover:bg-slate-50 transition-colors self-start sm:self-auto min-h-[44px] cursor-pointer"
-            >
-              <span>Buka di Lokasi & Ruangan</span>
-              <ArrowUpRight size={15} />
-            </button>
+          <div className="pt-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Lokasi & Ruangan
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+              Telusuri sebaran aset dan nilai perolehan per kampus, gedung, hingga inventaris ruangan.
+            </p>
           </div>
 
           {/* Card: Distribusi Nilai Aset per Kampus */}
@@ -1167,32 +1210,42 @@ export function OverviewPage({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <ArrowUpDown size={14} className="text-slate-400" />
-                  <span className="text-xs font-semibold text-slate-600">Urutkan:</span>
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                  <Filter size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-600 shrink-0">Kategori:</span>
                   <select
-                    value={roomSortBy}
-                    onChange={e => setRoomSortBy(e.target.value as any)}
-                    className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-[#1D63ED] cursor-pointer min-h-[44px]"
+                    value={selectedCategory}
+                    onChange={e => {
+                      setSelectedCategory(e.target.value);
+                      setRoomPage(1);
+                    }}
+                    className="w-full sm:w-auto max-w-full sm:max-w-xs py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-[#1D63ED] cursor-pointer min-h-[44px] truncate"
                   >
-                    <option value="nilai-desc">Nilai Aset Tertinggi</option>
-                    <option value="nilai-asc">Nilai Aset Terendah</option>
-                    <option value="aset-desc">Jumlah Aset Terbanyak</option>
-                    <option value="aset-asc">Jumlah Aset Tersedikit</option>
-                    <option value="nama-asc">Nama Ruangan (A-Z)</option>
+                    <option value="Semua">Semua Kategori</option>
+                    {categoryOptions.map(c => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               {/* Rooms View */}
-              {displayedRooms.length === 0 ? (
+              {filteredRooms.length === 0 ? (
                 <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center space-y-2">
                   <Building size={32} className="text-slate-300 mx-auto" />
-                  <h4 className="text-sm font-bold text-slate-700">Tidak ada ruangan yang cocok</h4>
+                  <h4 className="text-sm font-bold text-slate-700">
+                    {selectedCategory !== "Semua"
+                      ? "Tidak ada ruangan dengan kategori ini"
+                      : "Tidak ada ruangan yang cocok"}
+                  </h4>
                   <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                    {roomSearchQuery
-                      ? `Tidak ditemukan ruangan dengan kata kunci "${roomSearchQuery}".`
-                      : "Belum ada ruangan yang tercatat di gedung ini."}
+                    {selectedCategory !== "Semua"
+                      ? `Tidak ditemukan ruangan dengan kategori "${selectedCategory}" di gedung ini.`
+                      : roomSearchQuery
+                        ? `Tidak ditemukan ruangan dengan kata kunci "${roomSearchQuery}".`
+                        : "Belum ada ruangan yang tercatat di gedung ini."}
                   </p>
                 </div>
               ) : (
@@ -1210,7 +1263,7 @@ export function OverviewPage({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {displayedRooms.map(room => {
+                        {paginatedRooms.map(room => {
                           const hasAssets = room.bmnCount > 0;
                           return (
                             <tr key={room.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1244,15 +1297,17 @@ export function OverviewPage({
                                 </div>
                               </td>
                               <td className="py-4 px-6">
+                                {/* unit aset */}
                                 {hasAssets ? (
-                                  <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg">
-                                    {room.bmnCount.toLocaleString("id-ID")} Unit Aset
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-slate-400 italic">
-                                    Belum ada aset
-                                  </span>
-                                )}
+                                    <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg">
+                                      {room.bmnCount.toLocaleString("id-ID")} Unit Aset
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-slate-400 italic">
+                                      Belum ada aset
+                                    </span>
+                                  )
+                                }
                               </td>
                               <td className="py-4 px-6 text-right">
                                 <button
@@ -1273,7 +1328,7 @@ export function OverviewPage({
 
                   {/* Mobile Cards */}
                   <div className="md:hidden space-y-3.5">
-                    {displayedRooms.map(room => {
+                    {paginatedRooms.map(room => {
                       const hasAssets = room.bmnCount > 0;
                       return (
                         <div key={room.id} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
@@ -1324,6 +1379,36 @@ export function OverviewPage({
                       );
                     })}
                   </div>
+
+                  {/* Pagination Controls */}
+                  {filteredRooms.length > roomPageSize && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 px-2 text-xs text-slate-500">
+                      <div>
+                        Menampilkan {((roomPage - 1) * roomPageSize) + 1} - {Math.min(roomPage * roomPageSize, filteredRooms.length)} dari {filteredRooms.length} ruangan
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={roomPage === 1}
+                          onClick={() => setRoomPage(p => Math.max(1, p - 1))}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[36px]"
+                        >
+                          Sebelumnya
+                        </button>
+                        <div className="px-3 py-1.5 font-bold text-slate-800">
+                          Hal {roomPage} dari {totalRoomPages}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={roomPage >= totalRoomPages}
+                          onClick={() => setRoomPage(p => Math.min(totalRoomPages, p + 1))}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[36px]"
+                        >
+                          Selanjutnya
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
