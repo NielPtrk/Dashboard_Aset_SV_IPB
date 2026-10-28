@@ -95,14 +95,24 @@ export class UsersService implements OnModuleInit {
       }
 
       // 3. Ensure primary Admin Sistem account exists with username 'Admin Sistem'
-      let admin = await this.repo.findOne({ where: { username: "Admin Sistem" } });
+      // Must select password_hash to check if it's missing (legacy Google OAuth accounts have no password)
+      let admin = await this.repo
+        .createQueryBuilder("u")
+        .addSelect("u.password_hash")
+        .where("u.username = :username", { username: "Admin Sistem" })
+        .getOne();
       if (!admin) {
-        admin = await this.repo.findOne({ where: { role: "Admin Sistem" } });
+        admin = await this.repo
+          .createQueryBuilder("u")
+          .addSelect("u.password_hash")
+          .where("u.role = :role", { role: "Admin Sistem" })
+          .getOne();
       }
+
+      const defaultAdminPassword = process.env.ADMIN_INIT_PASSWORD || "Admin123";
 
       if (!admin) {
         // Initial setup only if no Admin Sistem exists
-        const defaultAdminPassword = process.env.ADMIN_INIT_PASSWORD || "Admin123";
         const hash = await bcrypt.hash(defaultAdminPassword, 10);
         admin = this.repo.create({
           username: "Admin Sistem",
@@ -128,6 +138,14 @@ export class UsersService implements OnModuleInit {
         if (admin.role !== "Admin Sistem") { admin.role = "Admin Sistem"; needsSave = true; }
         if (!admin.aktif) { admin.aktif = true; needsSave = true; }
         if (admin.status !== "aktif") { admin.status = "aktif"; needsSave = true; }
+        // CRITICAL: Legacy Google OAuth accounts have no password_hash — set default password
+        if (!admin.password_hash) {
+          admin.password_hash = await bcrypt.hash(defaultAdminPassword, 10);
+          admin.must_change_password = false;
+          admin.token_version = (admin.token_version || 0) + 1;
+          needsSave = true;
+          this.logger.log("Akun Admin Sistem: password_hash tidak ditemukan (akun OAuth lama). Password default diset.");
+        }
         if (needsSave) {
           await this.repo.save(admin);
           this.logger.log("Akun Admin Sistem utama (username: 'Admin Sistem') disinkronkan.");
