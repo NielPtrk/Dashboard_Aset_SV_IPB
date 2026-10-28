@@ -110,9 +110,10 @@ export class UsersService implements OnModuleInit {
       }
 
       const defaultAdminPassword = process.env.ADMIN_INIT_PASSWORD || "Admin123";
+      const forceReset = process.env.ADMIN_FORCE_RESET_PASSWORD === "true";
 
       if (!admin) {
-        // Initial setup only if no Admin Sistem exists
+        // Initial setup: no Admin Sistem exists at all
         const hash = await bcrypt.hash(defaultAdminPassword, 10);
         admin = this.repo.create({
           username: "Admin Sistem",
@@ -127,28 +128,32 @@ export class UsersService implements OnModuleInit {
           token_version: 1,
         });
         await this.repo.save(admin);
-        this.logger.log("Akun Admin Sistem utama (username: 'Admin Sistem') berhasil diinisialisasi.");
+        this.logger.log(`[INIT] Akun Admin Sistem baru dibuat. Username: 'Admin Sistem', Password: '${defaultAdminPassword}'`);
       } else {
+        // Sync metadata fields
         let needsSave = false;
-        if (admin.username !== "Admin Sistem") {
-          admin.username = "Admin Sistem";
-          admin.nama = "Admin Sistem";
-          needsSave = true;
-        }
+        if (admin.username !== "Admin Sistem") { admin.username = "Admin Sistem"; needsSave = true; }
+        if (admin.nama !== "Admin Sistem") { admin.nama = "Admin Sistem"; needsSave = true; }
         if (admin.role !== "Admin Sistem") { admin.role = "Admin Sistem"; needsSave = true; }
         if (!admin.aktif) { admin.aktif = true; needsSave = true; }
         if (admin.status !== "aktif") { admin.status = "aktif"; needsSave = true; }
-        // CRITICAL: Legacy Google OAuth accounts have no password_hash — set default password
-        if (!admin.password_hash) {
-          admin.password_hash = await bcrypt.hash(defaultAdminPassword, 10);
-          admin.must_change_password = false;
-          admin.token_version = (admin.token_version || 0) + 1;
-          needsSave = true;
-          this.logger.log("Akun Admin Sistem: password_hash tidak ditemukan (akun OAuth lama). Password default diset.");
+
+        // CRITICAL: Set password via direct SQL to bypass TypeORM select:false issues
+        // Triggered when: (a) no password_hash exists (legacy OAuth), OR (b) ADMIN_FORCE_RESET_PASSWORD=true
+        const needsPasswordReset = !admin.password_hash || forceReset;
+        if (needsPasswordReset) {
+          const hash = await bcrypt.hash(defaultAdminPassword, 10);
+          // Use raw query to guarantee password_hash is written regardless of ORM state
+          await this.repo.query(
+            `UPDATE users SET password_hash = $1, must_change_password = false, token_version = COALESCE(token_version, 1) + 1 WHERE id = $2`,
+            [hash, admin.id],
+          );
+          this.logger.log(`[INIT] Admin Sistem password di-reset via SQL langsung. Password: '${defaultAdminPassword}' (forceReset=${forceReset})`);
         }
+
         if (needsSave) {
           await this.repo.save(admin);
-          this.logger.log("Akun Admin Sistem utama (username: 'Admin Sistem') disinkronkan.");
+          this.logger.log("[INIT] Akun Admin Sistem metadata disinkronkan.");
         }
       }
     } catch (err) {

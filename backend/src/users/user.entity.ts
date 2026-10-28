@@ -14,8 +14,8 @@ export class User {
   @Column({ nullable: true })
   email: string;
 
-  @Column({ select: false })
-  password_hash: string;
+  @Column({ select: false, nullable: true })
+  password_hash: string | null;
 
   @Column({ default: "Tanpa Role" })
   role: string;
