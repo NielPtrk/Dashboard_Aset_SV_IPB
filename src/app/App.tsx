@@ -317,7 +317,7 @@ function Sidebar({
     );
   }
 
-  // Role Pimpinan sidebar: ONLY Overview, Settings, Help Center (+ account, profile, logout)
+  // Role Pimpinan sidebar: ONLY Overview (+ account, profile, logout)
   if (isPimpinan) {
     return (
       <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
@@ -341,71 +341,6 @@ function Sidebar({
 
         {/* Overview */}
         <NavItem icon={Layers} label="Overview" active={page === "ringkasan"} onClick={() => setPage("ringkasan")} />
-
-        {/* PENGATURAN */}
-        <div className="mt-4">
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Pengaturan</p>
-          <div 
-            onClick={() => setSettingsOpen(!settingsOpen)}
-            className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
-          >
-            <Settings size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
-            <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Pengaturan</span>
-            <ChevronRight 
-              size={16} 
-              strokeWidth={1.7} 
-              className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${settingsOpen ? "rotate-90" : ""}`} 
-            />
-          </div>
-          <div className={`overflow-hidden transition-all duration-200 ${settingsOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
-            <div className="flex flex-col py-1">
-              <div 
-                onClick={() => setPage("pengaturan")} 
-                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "pengaturan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
-              >
-                Umum
-              </div>
-              <div 
-                onClick={() => setPage("preferensi")}
-                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "preferensi" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
-              >
-                Preferensi
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* HELP CENTER */}
-        <div className="mt-1">
-          <div 
-            onClick={() => setHelpOpen(!helpOpen)}
-            className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
-          >
-            <Headset size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
-            <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Help Center</span>
-            <ChevronRight 
-              size={16} 
-              strokeWidth={1.7} 
-              className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${helpOpen ? "rotate-90" : ""}`} 
-            />
-          </div>
-          <div className={`overflow-hidden transition-all duration-200 ${helpOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
-            <div className="flex flex-col py-1">
-              <div 
-                onClick={() => setPage("panduan-pengguna")}
-                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "panduan-pengguna" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
-              >
-                Panduan Pengguna
-              </div>
-              <div 
-                onClick={() => setPage("hubungi-dukungan")}
-                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "hubungi-dukungan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
-              >
-                Hubungi Dukungan
-              </div>
-            </div>
-          </div>
-        </div>
       </aside>
     );
   }
@@ -2216,7 +2151,7 @@ function AppContent() {
   // Route Guard for role Pimpinan: redirect to Overview if on forbidden page
   useEffect(() => {
     if (currentUser?.role === "Pimpinan") {
-      const allowedPages = ["ringkasan", "pengaturan", "preferensi", "panduan-pengguna", "hubungi-dukungan", "profile"];
+      const allowedPages = ["ringkasan", "profile"];
       if (!allowedPages.includes(page)) {
         setPage("ringkasan");
       }
