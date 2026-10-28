@@ -12,6 +12,8 @@ import type { Asset } from "./asset.entity";
 
 import { Roles } from "../auth/decorators/roles.decorator";
 
+import * as XLSX from "xlsx";
+
 @ApiTags("assets")
 @ApiBearerAuth()
 @Roles("Admin Sistem", "Admin Pusat")
@@ -37,6 +39,25 @@ export class AssetsController {
     res.set({
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="aset-export-${Date.now()}.xlsx"`,
+    });
+    return new StreamableFile(buffer);
+  }
+
+  @Post("export-room-assets")
+  @Roles("Admin Sistem", "Admin Pusat", "Pimpinan", "Pekerja Stock Opname")
+  async exportRoomAssets(
+    @Body() body: { rows: Record<string, unknown>[]; filename?: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Aset_Ruangan");
+    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const cleanFilename = (body?.filename || `Aset_Ruangan_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${cleanFilename}.xlsx"`,
     });
     return new StreamableFile(buffer);
   }

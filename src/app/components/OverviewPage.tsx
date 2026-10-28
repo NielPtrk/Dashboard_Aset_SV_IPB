@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronLeft,
   ArrowLeft,
+  ArrowRight,
   Search,
   X,
   Filter,
@@ -16,12 +17,15 @@ import {
   Package,
   ExternalLink,
   Lock,
-  LogIn
+  LogIn,
+  Download,
 } from "lucide-react";
 import { useDataStore, type RuanganData, type Asset } from "./DataStore";
 import { SEED_RUANGAN } from "./ruanganSeed";
 import { buildAssetRoomMap } from "./assetRoomMatcher";
 import { useApp } from "./AppContext";
+import { exportToExcel } from "./excelUtils";
+import { apiClient } from "../services/apiClient";
 
 // ── Formatting Helpers ────────────────────────────────────────────────────────
 const fmtRupiahCompact = (n: number) => {
@@ -176,11 +180,6 @@ export function OverviewPage({
     store.fetchRuangan?.();
   }, []);
 
-  // Detail Drawer asset list search & pagination
-  const [assetSearchQuery, setAssetSearchQuery] = useState("");
-  const [assetPage, setAssetPage] = useState(1);
-  const pageSize = 10;
-
   // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -196,12 +195,6 @@ export function OverviewPage({
     };
   }, [isDropdownOpen]);
 
-  // Reset pagination when detail room or search query changes
-  useEffect(() => {
-    setAssetPage(1);
-    setAssetSearchQuery("");
-  }, [detailRoom]);
-
   // Master rooms reference from store or SEED
   const masterRooms: RuanganData[] = useMemo(() => {
     return store.ruangan && store.ruangan.length > 0 ? store.ruangan : SEED_RUANGAN;
@@ -211,6 +204,43 @@ export function OverviewPage({
   const { assetRoomMap } = useMemo(() => {
     return buildAssetRoomMap(store.assets, masterRooms);
   }, [store.assets, masterRooms]);
+
+  // ── Detail Room "Aset per Ruangan" State & Handlers ────────────────────────
+  const [detailRoomSumberFilter, setDetailRoomSumberFilter] = useState<"Semua" | "BMN" | "Observasi">("Semua");
+  const [detailRoomSearch, setDetailRoomSearch] = useState("");
+  const [debouncedDetailRoomSearch, setDebouncedDetailRoomSearch] = useState("");
+  const [detailRoomPage, setDetailRoomPage] = useState(1);
+  const detailRoomPageSize = 10;
+  const [isDetailRoomAsetLoading, setIsDetailRoomAsetLoading] = useState(false);
+  const [isExportingDetailRoom, setIsExportingDetailRoom] = useState(false);
+
+  // Debounce search input in detail room
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedDetailRoomSearch(detailRoomSearch);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [detailRoomSearch]);
+
+  // Reset pagination on filter or search changes
+  useEffect(() => {
+    setDetailRoomPage(1);
+  }, [detailRoomSumberFilter, debouncedDetailRoomSearch]);
+
+  // Lazy loading activation and state reset when room is opened
+  useEffect(() => {
+    if (detailRoom) {
+      setDetailRoomSumberFilter("Semua");
+      setDetailRoomSearch("");
+      setDebouncedDetailRoomSearch("");
+      setDetailRoomPage(1);
+      setIsDetailRoomAsetLoading(true);
+      const timer = setTimeout(() => {
+        setIsDetailRoomAsetLoading(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [detailRoom]);
 
   // Total Official Acquisition Value & Asset Count (Strict sum from store.assets)
   const totalAssetsCount = store.assets.length;
@@ -485,27 +515,6 @@ export function OverviewPage({
     }
   }, [totalRoomPages, roomPage]);
 
-  // Filtered assets inside detail drawer (Level 4)
-  const detailRoomFilteredAssets = useMemo(() => {
-    if (!detailRoom) return [];
-    let list = detailRoom.assets;
-    if (assetSearchQuery.trim()) {
-      const q = assetSearchQuery.toLowerCase().trim();
-      list = list.filter(a =>
-        (a.Nama_Barang || a.nama_barang || "").toLowerCase().includes(q) ||
-        (a.kode_tag_aset || a.id || "").toLowerCase().includes(q) ||
-        (String((a as any).nup || (a as any).NUP || "")).toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [detailRoom, assetSearchQuery]);
-
-  const totalAssetPages = Math.max(1, Math.ceil(detailRoomFilteredAssets.length / pageSize));
-  const pagedDetailAssets = useMemo(() => {
-    const start = (assetPage - 1) * pageSize;
-    return detailRoomFilteredAssets.slice(start, start + pageSize);
-  }, [detailRoomFilteredAssets, assetPage, pageSize]);
-
   // Observasi items for detail room
   const detailRoomObsItems = useMemo(() => {
     if (!detailRoom) return [];
@@ -515,11 +524,139 @@ export function OverviewPage({
     );
   }, [detailRoom, store.observasiItems]);
 
+  // Unified asset items for Detail Room (BMN + Observasi)
+  const detailRoomAllAssets = useMemo(() => {
+    if (!detailRoom) {
+      return { bmn: [], obs: [], bmnCount: 0, obsCount: 0, totalCount: 0 };
+    }
+
+    // 1. Registered BMN items
+    const bmn = (detailRoom.assets || []).map((a, idx) => {
+      const val = parseVal(a._harga_perolehan || a.harga_perolehan || a._nilai_buku || a.nilai_buku || "0");
+      const rawTag = a.kode_tag_aset || a.kode_barang || a.kode || "";
+      const rawName = a.Nama_Barang || a.nama_barang || a.nama || "-";
+      const rawMerk = a.TipeAset || a.jenis_aset || a.kategori || a.merk_type || "-";
+      const rawUnit = a.nama_unit || a.unit || a.unitPengguna || a.pengguna || "Sekolah Vokasi (SV)";
+      const rawCond = a.Kondisi || a.kondisi || "Baik";
+      const rawStatus = a.status_lokasi || "Belum Diverifikasi";
+
+      return {
+        id: String(a.id || rawTag || `BMN-${idx}`),
+        kode: rawTag || "-",
+        nama: rawName,
+        sumberKategori: "Aset Terdaftar (BMN)" as const,
+        kategori: rawMerk,
+        unit: rawUnit,
+        nilaiRp: val,
+        kondisi: rawCond,
+        statusLokasi: rawStatus,
+      };
+    });
+
+    // 2. Physical Observasi items
+    const obs = detailRoomObsItems.map((o, idx) => ({
+      id: o.id || `OBS-${detailRoom.id}-${idx}`,
+      kode: o.kodeBarang || "-",
+      nama: o.namaBarang || "-",
+      sumberKategori: "Aset Observasi" as const,
+      kategori: o.merekType || "Inventaris Ruangan",
+      unit: o.unitKerja || "Sekolah Vokasi (SV)",
+      nilaiRp: Number(o.jumlahHarga) || 0,
+      kondisi: o.kondisi || "Baik",
+      statusLokasi: "Hasil Observasi",
+    }));
+
+    return {
+      bmn,
+      obs,
+      bmnCount: bmn.length,
+      obsCount: obs.length,
+      totalCount: bmn.length + obs.length,
+    };
+  }, [detailRoom, detailRoomObsItems]);
+
+  // Filtered asset items based on segmented filter and debounced search
+  const detailRoomFilteredAssets = useMemo(() => {
+    if (!detailRoom) return [];
+    let list: typeof detailRoomAllAssets.bmn = [];
+    if (detailRoomSumberFilter === "Semua") {
+      list = [...detailRoomAllAssets.bmn, ...detailRoomAllAssets.obs];
+    } else if (detailRoomSumberFilter === "BMN") {
+      list = detailRoomAllAssets.bmn;
+    } else {
+      list = detailRoomAllAssets.obs;
+    }
+
+    const q = debouncedDetailRoomSearch.toLowerCase().trim();
+    if (!q) return list;
+
+    return list.filter(item =>
+      item.nama.toLowerCase().includes(q) ||
+      item.kode.toLowerCase().includes(q) ||
+      item.kategori.toLowerCase().includes(q) ||
+      item.unit.toLowerCase().includes(q) ||
+      item.kondisi.toLowerCase().includes(q) ||
+      item.statusLokasi.toLowerCase().includes(q)
+    );
+  }, [detailRoom, detailRoomAllAssets, detailRoomSumberFilter, debouncedDetailRoomSearch]);
+
+  const detailRoomTotalPages = Math.max(1, Math.ceil(detailRoomFilteredAssets.length / detailRoomPageSize));
+  const pagedDetailRoomAssets = useMemo(() => {
+    const start = (detailRoomPage - 1) * detailRoomPageSize;
+    return detailRoomFilteredAssets.slice(start, start + detailRoomPageSize);
+  }, [detailRoomFilteredAssets, detailRoomPage, detailRoomPageSize]);
+
+  // Export Excel handler for current room
+  const handleExportDetailRoomExcel = async () => {
+    if (!detailRoom || detailRoomFilteredAssets.length === 0) return;
+    setIsExportingDetailRoom(true);
+
+    const exportRows = detailRoomFilteredAssets.map((a, idx) => ({
+      No: idx + 1,
+      "Kode Barang / Tag": a.kode,
+      "Nama Barang": a.nama,
+      "Kategori Sumber": a.sumberKategori,
+      "Merek / Kategori": a.kategori,
+      "Unit": a.unit,
+      "Nilai (Rp)": a.nilaiRp,
+      "Kondisi": a.kondisi,
+      "Status": a.statusLokasi,
+    }));
+
+    const roomSlug = (detailRoom.namaRuangan || "Ruangan").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filename = `Aset_${roomSlug}_${detailRoomSumberFilter}`;
+
+    try {
+      const res = await apiClient.post(
+        "/assets/export-room-assets",
+        { rows: exportRows, filename },
+        { responseType: "blob" }
+      );
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // Client-side fallback
+      exportToExcel(exportRows, filename, "Aset_Ruangan");
+    } finally {
+      setIsExportingDetailRoom(false);
+    }
+  };
+
   // Header dynamic greeting & name
   const hour = new Date().getHours();
   const greeting = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam";
   const user = store.currentUser || (userProfile?.nama ? userProfile : null);
   const rawUserName = user?.nama;
+  const isPimpinan = store.currentUser?.role === "Pimpinan";
   const formattedGreeting = rawUserName
     ? `${greeting}, ${rawUserName.endsWith(".") ? rawUserName : `${rawUserName}.`}`
     : greeting;
@@ -1414,6 +1551,7 @@ export function OverviewPage({
             </div>
           )}
 
+
         </section>
 
         {/* ── 4. FOOTER (Figma Aligned) ────────────────────────────────────────── */}
@@ -1555,89 +1693,246 @@ export function OverviewPage({
                 )}
               </div>
 
-              {/* Daftar Aset di Ruangan Ini (Search & Paginated) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
+              {/* ── Aset per Ruangan ──────────────────────────────────────── */}
+              <div className="space-y-3 pt-1">
+                {/* Header & Export Button */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Daftar Aset di Ruangan Ini ({detailRoom.bmnCount})
+                    Aset per Ruangan ({detailRoomAllAssets.totalCount})
                   </h4>
-                  {detailRoomFilteredAssets.length > 0 && (
-                    <span className="text-[11px] text-slate-400 font-medium">
-                      Hal {assetPage} dari {totalAssetPages}
-                    </span>
+                  <button
+                    type="button"
+                    onClick={handleExportDetailRoomExcel}
+                    disabled={detailRoomFilteredAssets.length === 0 || isExportingDetailRoom}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-h-[36px]"
+                  >
+                    {isExportingDetailRoom ? (
+                      <span className="inline-block w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Download size={13} className="text-slate-500" />
+                    )}
+                    <span>Export Excel</span>
+                  </button>
+                </div>
+
+                {/* Segmented Source Filter */}
+                <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 self-start shrink-0 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setDetailRoomSumberFilter("Semua")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                      detailRoomSumberFilter === "Semua"
+                        ? "bg-white text-slate-900 shadow-2xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Semua ({detailRoomAllAssets.totalCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailRoomSumberFilter("BMN")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                      detailRoomSumberFilter === "BMN"
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "text-blue-700 hover:bg-blue-50"
+                    }`}
+                  >
+                    BMN ({detailRoomAllAssets.bmnCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailRoomSumberFilter("Observasi")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                      detailRoomSumberFilter === "Observasi"
+                        ? "bg-rose-600 text-white shadow-2xs"
+                        : "text-rose-700 hover:bg-rose-50"
+                    }`}
+                  >
+                    Observasi ({detailRoomAllAssets.obsCount})
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama barang atau kode tag..."
+                    value={detailRoomSearch}
+                    onChange={e => setDetailRoomSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#1D63ED] font-medium text-slate-800 min-h-[40px]"
+                  />
+                  {detailRoomSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailRoomSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      title="Hapus pencarian"
+                    >
+                      <X size={14} />
+                    </button>
                   )}
                 </div>
 
-                {/* Filter search input */}
-                {detailRoom.bmnCount > 0 && (
-                  <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Cari nama barang atau kode tag..."
-                      value={assetSearchQuery}
-                      onChange={e => {
-                        setAssetSearchQuery(e.target.value);
-                        setAssetPage(1);
-                      }}
-                      className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-[#1D63ED] font-medium text-slate-800 min-h-[44px]"
-                    />
+                {/* Content: Skeleton / Empty State / Table & Cards */}
+                {isDetailRoomAsetLoading ? (
+                  <div className="space-y-2.5 py-2 animate-pulse">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="h-12 bg-slate-100 rounded-xl" />
+                    ))}
                   </div>
-                )}
-
-                {detailRoom.bmnCount === 0 ? (
+                ) : detailRoomAllAssets.totalCount === 0 ? (
                   <div className="p-8 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-center space-y-1.5">
                     <Package size={24} className="text-slate-300 mx-auto" />
                     <p className="text-xs font-bold text-slate-700">Belum ada aset di ruangan ini</p>
-                    <p className="text-[11px] text-slate-400">
-                      Ruangan ini telah terdaftar di sistem master ruangan, namun belum ada aset BMN yang dialokasikan.
+                    <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                      Ruangan ini telah terdaftar di sistem master ruangan, namun belum ada aset yang dialokasikan.
                     </p>
                   </div>
                 ) : detailRoomFilteredAssets.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-lg">
-                    Tidak ada aset yang cocok dengan pencarian "{assetSearchQuery}".
+                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-200/60">
+                    Tidak ada aset yang cocok dengan filter atau pencarian "{detailRoomSearch}".
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <div className="space-y-3">
+                    {/* Mobile Card List (md:hidden) */}
+                    <div className="md:hidden space-y-2">
+                      {pagedDetailRoomAssets.map((item, idx) => {
+                        const isBMN = item.sumberKategori === "Aset Terdaftar (BMN)";
+                        const condLower = (item.kondisi || "Baik").toLowerCase();
+                        const isRusak = condLower.includes("rusak") || condLower.includes("berat");
+                        const isSedang = condLower.includes("sedang") || condLower.includes("ringan");
+
+                        return (
+                          <div
+                            key={`m-card-${item.id}-${idx}`}
+                            className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-2xs space-y-2"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-mono text-xs font-bold text-slate-700 truncate">
+                                {item.kode}
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                  isBMN
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-rose-50 text-rose-700 border border-rose-200"
+                                }`}
+                              >
+                                {isBMN ? "BMN" : "Observasi"}
+                              </span>
+                            </div>
+
+                            <p className="text-xs font-bold text-slate-900 leading-snug line-clamp-2">
+                              {item.nama}
+                            </p>
+
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                              <span>{item.kategori}</span>
+                              <span>·</span>
+                              <span className="truncate max-w-[150px]">{item.unit}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                              <span className="font-mono font-extrabold text-slate-900" title={fmtRupiahFull(item.nilaiRp)}>
+                                {fmtRupiahCompact(item.nilaiRp)}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    isRusak
+                                      ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                      : isSedang
+                                      ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                      : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                  }`}
+                                >
+                                  {item.kondisi}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Desktop Table (hidden md:block) */}
+                    <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-black uppercase">
-                            <th className="px-3 py-2 w-8 text-center">No</th>
-                            <th className="px-3 py-2">Nama Barang & Kode</th>
-                            <th className="px-3 py-2 text-center">Kondisi</th>
-                            <th className="px-3 py-2 text-right">Nilai</th>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-extrabold uppercase">
+                            <th className="px-3 py-2.5 whitespace-nowrap">Kode Barang / Tag</th>
+                            <th className="px-3 py-2.5">Nama Barang</th>
+                            <th className="px-3 py-2.5 whitespace-nowrap text-center">Kategori Sumber</th>
+                            <th className="px-3 py-2.5">Merek / Kategori</th>
+                            <th className="px-3 py-2.5">Unit</th>
+                            <th className="px-3 py-2.5 text-right whitespace-nowrap">Nilai (Rp)</th>
+                            <th className="px-3 py-2.5 text-center whitespace-nowrap">Kondisi</th>
+                            <th className="px-3 py-2.5 text-center whitespace-nowrap">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-medium">
-                          {pagedDetailAssets.map((asset, idx) => {
-                            const rowIdx = (assetPage - 1) * pageSize + idx + 1;
-                            const assetVal = parseVal(asset._harga_perolehan || asset.harga_perolehan || asset._nilai_buku || asset.nilai_buku || "0");
-                            const cond = asset.Kondisi || asset.kondisi || "Baik";
-                            const isRusak = cond.toLowerCase().includes("rusak");
+                          {pagedDetailRoomAssets.map((item, idx) => {
+                            const isBMN = item.sumberKategori === "Aset Terdaftar (BMN)";
+                            const condLower = (item.kondisi || "Baik").toLowerCase();
+                            const isRusak = condLower.includes("rusak") || condLower.includes("berat");
+                            const isSedang = condLower.includes("sedang") || condLower.includes("ringan");
+
                             return (
-                              <tr key={asset.id || idx} className="hover:bg-slate-50/80 transition-colors">
-                                <td className="px-3 py-2.5 text-center font-mono text-[11px] text-slate-400">{rowIdx}</td>
-                                <td className="px-3 py-2.5">
-                                  <div className="font-extrabold text-slate-800 line-clamp-1" title={asset.Nama_Barang || asset.nama_barang}>
-                                    {asset.Nama_Barang || asset.nama_barang}
-                                  </div>
-                                  <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                    <span>{asset.kode_tag_aset || asset.id}</span>
-                                    {((asset as any).nup || (asset as any).NUP) && (
-                                      <span>· NUP: {(asset as any).nup || (asset as any).NUP}</span>
-                                    )}
+                              <tr key={`d-row-${item.id}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="px-3 py-2.5 font-mono font-bold text-slate-700 whitespace-nowrap">
+                                  {item.kode}
+                                </td>
+                                <td className="px-3 py-2.5 max-w-[200px]">
+                                  <div className="font-bold text-slate-900 line-clamp-1" title={item.nama}>
+                                    {item.nama}
                                   </div>
                                 </td>
-                                <td className="px-3 py-2.5 text-center">
-                                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                    isRusak ? "bg-rose-100 text-rose-800 border border-rose-200" : "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                  }`}>
-                                    {cond}
+                                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                  <span
+                                    className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      isBMN
+                                        ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                        : "bg-rose-50 text-rose-700 border border-rose-200"
+                                    }`}
+                                  >
+                                    {isBMN ? "BMN" : "Observasi"}
                                   </span>
                                 </td>
-                                <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900" title={fmtRupiahFull(assetVal)}>
-                                  {fmtRupiahCompact(assetVal)}
+                                <td className="px-3 py-2.5 text-slate-600 truncate max-w-[120px]" title={item.kategori}>
+                                  {item.kategori}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-600 truncate max-w-[120px]" title={item.unit}>
+                                  {item.unit}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 whitespace-nowrap" title={fmtRupiahFull(item.nilaiRp)}>
+                                  {fmtRupiahCompact(item.nilaiRp)}
+                                </td>
+                                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                  <span
+                                    className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      isRusak
+                                        ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                        : isSedang
+                                        ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                        : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                    }`}
+                                  >
+                                    {item.kondisi}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                  <span
+                                    className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      !isBMN
+                                        ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                        : item.statusLokasi?.toLowerCase().includes("verif") || item.statusLokasi?.toLowerCase().includes("sesuai")
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : "bg-slate-100 text-slate-600 border border-slate-200"
+                                    }`}
+                                  >
+                                    {item.statusLokasi}
+                                  </span>
                                 </td>
                               </tr>
                             );
@@ -1647,31 +1942,37 @@ export function OverviewPage({
                     </div>
 
                     {/* Pagination Controls */}
-                    {totalAssetPages > 1 && (
-                      <div className="flex items-center justify-between pt-2">
-                        <button
-                          type="button"
-                          disabled={assetPage <= 1}
-                          onClick={() => setAssetPage(p => Math.max(1, p - 1))}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px]"
-                        >
-                          <ChevronLeft size={13} />
-                          <span>Sebelumnya</span>
-                        </button>
-
-                        <span className="text-[11px] font-semibold text-slate-500">
-                          {assetPage} / {totalAssetPages}
+                    {detailRoomTotalPages > 1 && (
+                      <div className="flex items-center justify-between gap-2 pt-2 flex-wrap">
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Menampilkan {(detailRoomPage - 1) * detailRoomPageSize + 1}–{Math.min(detailRoomPage * detailRoomPageSize, detailRoomFilteredAssets.length)} dari {detailRoomFilteredAssets.length} aset
                         </span>
 
-                        <button
-                          type="button"
-                          disabled={assetPage >= totalAssetPages}
-                          onClick={() => setAssetPage(p => Math.min(totalAssetPages, p + 1))}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px]"
-                        >
-                          <span>Selanjutnya</span>
-                          <ChevronRight size={13} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={detailRoomPage <= 1}
+                            onClick={() => setDetailRoomPage(p => Math.max(1, p - 1))}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px] cursor-pointer"
+                          >
+                            <ChevronLeft size={13} />
+                            <span>Sebelumnya</span>
+                          </button>
+
+                          <span className="text-[11px] font-semibold text-slate-600 px-1">
+                            {detailRoomPage} / {detailRoomTotalPages}
+                          </span>
+
+                          <button
+                            type="button"
+                            disabled={detailRoomPage >= detailRoomTotalPages}
+                            onClick={() => setDetailRoomPage(p => Math.min(detailRoomTotalPages, p + 1))}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 min-h-[36px] cursor-pointer"
+                          >
+                            <span>Selanjutnya</span>
+                            <ChevronRight size={13} />
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1687,7 +1988,8 @@ export function OverviewPage({
               </span>
 
               <div className="flex items-center gap-2">
-                <button
+                {!isPimpinan && (
+                  <button
                   type="button"
                   onClick={() => {
                     setDetailRoom(null);
@@ -1698,6 +2000,7 @@ export function OverviewPage({
                   <span>Buka di Lokasi & Ruangan</span>
                   <ExternalLink size={12} />
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setDetailRoom(null)}

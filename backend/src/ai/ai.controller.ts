@@ -12,7 +12,7 @@ import { Roles } from "../auth/decorators/roles.decorator";
 
 @ApiTags("ai")
 @ApiBearerAuth()
-@Roles("Admin Sistem", "Pimpinan", "Admin Pusat", "Pekerja Stock Opname")
+@Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname")
 @Controller("ai")
 export class AiController {
   constructor(private readonly ai: AiService) {}

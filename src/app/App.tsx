@@ -213,10 +213,104 @@ function Sidebar({
   const isPekerja = role === "Pekerja Stock Opname";
   const isAdminPusat = role === "Admin Pusat";
   const isAdminSistem = role === "Admin Sistem";
+  const isPimpinan = role === "Pimpinan";
   const canSeeMutasiBadge = isAdminPusat || isAdminSistem;
   const pendingMutasiCount = canSeeMutasiBadge
     ? (mutationRequests || []).filter(m => m.status === "Menunggu Persetujuan" || m.status === "Menunggu" || m.status === "Draft").length
     : 0;
+
+  // Role Pimpinan sidebar: ONLY Overview, Settings, Help Center (+ account, profile, logout)
+  if (isPimpinan) {
+    return (
+      <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
+        {/* Brand — klik logo kembali ke Overview */}
+        <div
+          className="flex items-center gap-2.5 px-2 mb-3 cursor-pointer rounded-lg hover:bg-gray-50 transition-colors"
+          onClick={() => setPage("ringkasan")}
+          title="Kembali ke Overview"
+        >
+          <Logo />
+          <div>
+            <div className="text-base font-bold text-gray-900 leading-tight">Aset SV IPB</div>
+            <div className="text-[11.5px] text-gray-400 mt-0.5 leading-tight">Manajemen Aset</div>
+          </div>
+        </div>
+
+        {/* User profile & logout */}
+        <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} />
+
+        <div className="my-3 border-t border-gray-100" />
+
+        {/* Overview */}
+        <NavItem icon={Layers} label="Overview" active={page === "ringkasan"} onClick={() => setPage("ringkasan")} />
+
+        {/* PENGATURAN */}
+        <div className="mt-4">
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Pengaturan</p>
+          <div 
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
+          >
+            <Settings size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
+            <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Pengaturan</span>
+            <ChevronRight 
+              size={16} 
+              strokeWidth={1.7} 
+              className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${settingsOpen ? "rotate-90" : ""}`} 
+            />
+          </div>
+          <div className={`overflow-hidden transition-all duration-200 ${settingsOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+            <div className="flex flex-col py-1">
+              <div 
+                onClick={() => setPage("pengaturan")} 
+                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "pengaturan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
+              >
+                Umum
+              </div>
+              <div 
+                onClick={() => setPage("preferensi")}
+                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "preferensi" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
+              >
+                Preferensi
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* HELP CENTER */}
+        <div className="mt-1">
+          <div 
+            onClick={() => setHelpOpen(!helpOpen)}
+            className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors rounded-lg"
+          >
+            <Headset size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
+            <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Help Center</span>
+            <ChevronRight 
+              size={16} 
+              strokeWidth={1.7} 
+              className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${helpOpen ? "rotate-90" : ""}`} 
+            />
+          </div>
+          <div className={`overflow-hidden transition-all duration-200 ${helpOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+            <div className="flex flex-col py-1">
+              <div 
+                onClick={() => setPage("panduan-pengguna")}
+                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "panduan-pengguna" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
+              >
+                Panduan Pengguna
+              </div>
+              <div 
+                onClick={() => setPage("hubungi-dukungan")}
+                className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "hubungi-dukungan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}
+              >
+                Hubungi Dukungan
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
@@ -683,12 +777,14 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
   const [notifViewAll, setNotifViewAll] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const { notifications, markAllRead, markRead, unreadCount } = useApp();
+  const { currentUser } = useDataStore();
+  const isPimpinan = currentUser?.role === "Pimpinan";
 
   return (
     <>
       <div className="sticky top-0 z-10 bg-[#FFFFFF] border-b border-[#ECECEC] flex items-center justify-between px-3 sm:px-6 md:px-8 h-14 sm:h-[72px] gap-2 relative min-w-0">
-        {/* Mobile Search Overlay */}
-        {mobileSearchOpen && (
+        {/* Mobile Search Overlay — hidden for Pimpinan */}
+        {!isPimpinan && mobileSearchOpen && (
           <div className="absolute inset-0 z-20 bg-white px-3 sm:px-6 flex items-center gap-2 animate-in fade-in duration-150">
             <Search size={18} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
             <input
@@ -734,33 +830,40 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
 
         {/* RIGHT: action buttons */}
         <div className="flex items-center justify-end gap-1.5 sm:gap-[10px] shrink-0 relative">
-          {/* Desktop Search */}
-          <div className="hidden sm:flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-36 md:w-56 lg:w-64 transition-all focus-within:w-44 md:focus-within:w-64">
-            <Search size={16} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
-            <input className="text-xs sm:text-[14px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
-              placeholder="Search..." />
-            <div className="hidden md:flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[28px] h-[20px] shrink-0">
-              <span className="text-[11px] font-medium text-[#777777]">⌘K</span>
+          {/* Desktop Search — hidden for Pimpinan */}
+          {!isPimpinan && (
+            <div className="hidden sm:flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-36 md:w-56 lg:w-64 transition-all focus-within:w-44 md:focus-within:w-64">
+              <Search size={16} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
+              <input className="text-xs sm:text-[14px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
+                placeholder="Search..." />
+              <div className="hidden md:flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[28px] h-[20px] shrink-0">
+                <span className="text-[11px] font-medium text-[#777777]">⌘K</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Mobile Search Trigger Button */}
-          <button
-            onClick={() => setMobileSearchOpen(true)}
-            className="sm:hidden w-[34px] h-[34px] rounded-[8px] border border-[#E5E5E5] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
-            title="Cari"
-          >
-            <Search size={15} strokeWidth={1.7} className="text-[#6F737A]" />
-          </button>
+          {/* Mobile Search Trigger Button — hidden for Pimpinan */}
+          {!isPimpinan && (
+            <button
+              onClick={() => setMobileSearchOpen(true)}
+              className="sm:hidden w-[34px] h-[34px] rounded-[8px] border border-[#E5E5E5] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
+              title="Cari"
+            >
+              <Search size={15} strokeWidth={1.7} className="text-[#6F737A]" />
+            </button>
+          )}
 
-          <button
-            onClick={() => setShowAI(true)}
-            className="flex items-center gap-1 sm:gap-1.5 h-[34px] sm:h-[38px] px-2 sm:px-3 sm:pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100 shrink-0 cursor-pointer"
-            title="Tanya AI"
-          >
-            <img src={asistenAiLogo} alt="AI Logo" className="w-5 h-5 sm:w-7 sm:h-7 object-contain shrink-0" />
-            <span className="text-xs sm:text-[14px] font-medium text-[#6B7280] hidden md:inline">Tanya AI</span>
-          </button>
+          {/* Tanya AI — hidden for Pimpinan */}
+          {!isPimpinan && (
+            <button
+              onClick={() => setShowAI(true)}
+              className="flex items-center gap-1 sm:gap-1.5 h-[34px] sm:h-[38px] px-2 sm:px-3 sm:pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100 shrink-0 cursor-pointer"
+              title="Tanya AI"
+            >
+              <img src={asistenAiLogo} alt="AI Logo" className="w-5 h-5 sm:w-7 sm:h-7 object-contain shrink-0" />
+              <span className="text-xs sm:text-[14px] font-medium text-[#6B7280] hidden md:inline">Tanya AI</span>
+            </button>
+          )}
           <button
             onClick={() => setShowNotifications(!showNotifications)}
             className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors relative shrink-0 cursor-pointer"
@@ -803,7 +906,7 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
                       key={n.id}
                       onClick={() => {
                         markRead(n.id);
-                        if (n.actionPage) {
+                        if (n.actionPage && !isPimpinan) {
                           window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: n.actionPage } }));
                           setShowNotifications(false);
                         }
@@ -1395,9 +1498,17 @@ const DASH_SUBPAGES: Record<string, { title: string; tabs: string[] }> = {
   "kampus-belum-dikategorikan": { title: "Belum Dikategorikan", tabs: ["Ringkasan", "Aset per Ruangan", "Denah / Floorplan"] },
 };
 
-// ── Main Content ──────────────────────────────────────────────────────────────
 function MainContent({ page, onOpenAuth }: { page: string; onOpenAuth: (mode?: AuthMode) => void }) {
   const { theme, setTheme, tableDensity, setTableDensity, showToast, userProfile } = useApp();
+  const { currentUser } = useDataStore();
+
+  const isPimpinan = currentUser?.role === "Pimpinan";
+  const pimpinanAllowed = ["ringkasan", "pengaturan", "preferensi", "panduan-pengguna", "hubungi-dukungan", "profile"];
+
+  // Route guard: if Pimpinan tries to render any other page, redirect to Overview
+  if (isPimpinan && !pimpinanAllowed.includes(page)) {
+    return <OverviewPage topBar={<TopBar breadcrumbs={["Overview"]} />} onOpenAuth={onOpenAuth} />;
+  }
 
   const PAGE_TITLES: Record<string, string> = {
     pengguna:             "Pengguna",
@@ -1929,6 +2040,16 @@ function AppContent() {
       setHasPromptedAuth(true);
     }
   }, [currentUser, hasPromptedAuth]);
+
+  // Route Guard for role Pimpinan: redirect to Overview if on forbidden page
+  useEffect(() => {
+    if (currentUser?.role === "Pimpinan") {
+      const allowedPages = ["ringkasan", "pengaturan", "preferensi", "panduan-pengguna", "hubungi-dukungan", "profile"];
+      if (!allowedPages.includes(page)) {
+        setPage("ringkasan");
+      }
+    }
+  }, [currentUser?.role, page]);
 
   return (
     <div className="flex h-screen w-full bg-white overflow-hidden relative font-sans">

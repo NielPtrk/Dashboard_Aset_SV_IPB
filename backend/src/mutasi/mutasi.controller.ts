@@ -22,7 +22,7 @@ import { Roles } from "../auth/decorators/roles.decorator";
 
 @ApiTags("mutasi")
 @ApiBearerAuth()
-@Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname", "Pimpinan")
+@Roles("Admin Sistem", "Admin Pusat", "Pekerja Stock Opname")
 @Controller("mutasi")
 export class MutasiController {
   constructor(private readonly service: MutasiService) {}
