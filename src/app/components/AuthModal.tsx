@@ -101,9 +101,18 @@ export function AuthModal({
       onSuccess?.();
       onClose?.();
     } catch (err: any) {
-      const msg =
-        err.response?.data?.message ||
-        "Username atau kata sandi salah.";
+      let msg = "Terjadi kesalahan saat masuk. Silakan coba lagi.";
+      if (err.response?.data?.message) {
+        msg = err.response.data.message;
+      } else if (err.response?.status === 401) {
+        msg = "Username atau kata sandi salah.";
+      } else if (err.response?.status === 405 || err.response?.status === 404) {
+        msg = `Koneksi ke backend gagal (HTTP ${err.response.status}). Endpoint backend belum terhubung dengan benar.`;
+      } else if (err.response?.status >= 500) {
+        msg = `Server backend mengalami gangguan (HTTP ${err.response.status}).`;
+      } else if (err.message === "Network Error") {
+        msg = "Tidak dapat terhubung ke server backend (Network Error).";
+      }
       setErrorMsg(msg);
 
       // Log failed login attempt
