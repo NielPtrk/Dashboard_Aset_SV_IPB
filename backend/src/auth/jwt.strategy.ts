@@ -17,7 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role?: string }) {
+  async validate(payload: { sub: string; email?: string; username?: string; role?: string; token_version?: number }) {
     // Always query database live record to immediately detect role changes, revocation, or deactivation
     const user = await this.usersService.findById(payload.sub).catch(() => null);
     if (!user) {
@@ -25,22 +25,29 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     if (!user.aktif || user.status === "nonaktif" || user.status === "ditolak") {
-      throw new UnauthorizedException("Akun Anda tidak aktif atau dinonaktifkan.");
+      throw new UnauthorizedException("Akun Anda telah dinonaktifkan. Silakan hubungi Admin Sistem.");
     }
 
-    if (user.status === "menunggu_verifikasi" || user.status === "menunggu_persetujuan") {
-      throw new UnauthorizedException("Akun Anda belum aktif (menunggu verifikasi atau persetujuan admin).");
+    // Invalidate old session tokens if token_version was incremented
+    if (
+      payload.token_version !== undefined &&
+      user.token_version !== undefined &&
+      payload.token_version !== user.token_version
+    ) {
+      throw new UnauthorizedException("Sesi Anda telah berakhir karena kredensial atau peran akun diperbarui. Silakan masuk kembali.");
     }
 
     // Return the up-to-date user properties attached to req.user
     return {
       userId: user.id,
       id: user.id,
-      email: user.email,
-      nama: user.nama,
+      username: user.username || user.nama,
+      nama: user.username || user.nama,
       role: user.role, // Live role from database!
       unit: user.unit,
+      jabatan: user.jabatan,
       status: user.status,
+      must_change_password: user.must_change_password,
     };
   }
 }

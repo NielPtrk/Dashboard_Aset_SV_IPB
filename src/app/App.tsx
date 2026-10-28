@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { AppProvider, useApp } from "./components/AppContext";
 import { DataStoreProvider, useDataStore } from "./components/DataStore";
 import type { TableDensity, AppLanguage } from "./components/AppContext";
@@ -92,9 +92,11 @@ function NavItem({ icon: Icon, label, active, badge, onClick }: {
 function UserProfileMenu({
   setPage,
   onOpenAuth,
+  isGuest,
 }: {
   setPage: (p: string) => void;
   onOpenAuth: (mode?: AuthMode) => void;
+  isGuest?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
@@ -102,7 +104,7 @@ function UserProfileMenu({
   const { currentUser } = useDataStore();
 
   const displayName = currentUser?.nama || userProfile?.nama || "Pengguna";
-  const displayEmail = currentUser?.email || userProfile?.email || "user@apps.ipb.ac.id";
+  const displayUsername = currentUser?.username || userProfile?.username || "";
   const displayRole = currentUser?.role || userProfile?.jabatan || "Administrator";
   const truncatedName = displayName.length > 13 ? `${displayName.slice(0, 10)}...` : displayName;
 
@@ -113,6 +115,19 @@ function UserProfileMenu({
     onOpenAuth("login");
   };
 
+  // Guest: show login prompt button instead of profile menu
+  if (isGuest) {
+    return (
+      <button
+        onClick={() => onOpenAuth("login")}
+        className="w-full h-[43px] flex items-center justify-center gap-2 rounded-[8px] border border-[#111827] bg-[#111827] text-white text-sm font-semibold cursor-pointer hover:bg-[#1F2937] transition-colors"
+      >
+        <LogIn size={15} />
+        Masuk ke Sistem
+      </button>
+    );
+  }
+
   return (
     <div className="relative">
       {open && (
@@ -121,7 +136,7 @@ function UserProfileMenu({
           <div className="absolute top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-[0_4px_24px_rgba(0,0,0,0.08)] rounded-xl z-50 overflow-hidden py-1.5 animate-in fade-in zoom-in-95 duration-100">
             <div className="px-3 py-2.5 border-b border-gray-100 mb-1 bg-gray-50/50">
               <p className="text-sm font-bold text-gray-900 truncate">{displayName}</p>
-              <p className="text-[10px] text-gray-500 mt-0.5 truncate">{displayRole} • {displayEmail}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5 truncate">{displayRole}{displayUsername ? ` • @${displayUsername}` : ""}</p>
             </div>
             
             <button 
@@ -130,14 +145,6 @@ function UserProfileMenu({
             >
               <User size={14} className="text-gray-500" />
               <span className="text-xs text-gray-700 font-medium">Profil Saya</span>
-            </button>
-
-            <button 
-              onClick={() => { setOpen(false); onOpenAuth("login"); }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-blue-50 text-left transition-colors"
-            >
-              <LogIn size={14} className="text-blue-600" />
-              <span className="text-xs text-blue-700 font-medium">Ganti Akun / Masuk</span>
             </button>
             
             <div className="my-1 border-t border-gray-100" />
@@ -188,10 +195,12 @@ function Sidebar({
   page,
   setPage,
   onOpenAuth,
+  isGuest = false,
 }: {
   page: string;
   setPage: (p: string) => void;
   onOpenAuth: (mode?: AuthMode) => void;
+  isGuest?: boolean;
 }) {
   const [dashboardOpen, setDashboardOpen] = useState(true);
   const [dataAsetOpen, setDataAsetOpen] = useState(true);
@@ -219,6 +228,95 @@ function Sidebar({
     ? (mutationRequests || []).filter(m => m.status === "Menunggu Persetujuan" || m.status === "Menunggu" || m.status === "Draft").length
     : 0;
 
+  // ── GUEST SIDEBAR: hanya Overview, Settings, Help Center ──────────────────
+  if (isGuest) {
+    return (
+      <aside className="w-64 shrink-0 bg-white border-r border-gray-100 flex flex-col py-5 px-4 overflow-y-auto">
+        <div
+          className="flex items-center gap-2.5 px-2 mb-3 cursor-pointer rounded-lg hover:bg-gray-50 transition-colors"
+          onClick={() => setPage("ringkasan")}
+          title="Kembali ke Overview"
+        >
+          <Logo />
+          <div>
+            <div className="text-base font-bold text-gray-900 leading-tight">Aset SV IPB</div>
+            <div className="text-[11.5px] text-gray-400 mt-0.5 leading-tight">Manajemen Aset</div>
+          </div>
+        </div>
+
+        {/* Guest login button */}
+        <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} isGuest />
+
+        <div className="my-3 border-t border-gray-100" />
+
+        {/* Hanya Overview yang bisa diakses */}
+        <NavItem icon={Layers} label="Overview" active={page === "ringkasan"} onClick={() => setPage("ringkasan")} />
+
+        {/* Menu lain dikunci */}
+        <div className="mt-4 space-y-0.5">
+          {[
+            { icon: LayoutDashboard, label: "Dashboard" },
+            { icon: Database, label: "Data Aset" },
+            { icon: MapPin, label: "Lokasi & Ruangan" },
+            { icon: ArrowLeftRight, label: "Mutasi Aset" },
+            { icon: Wrench, label: "Perbaikan" },
+            { icon: ClipboardList, label: "Stock Opname" },
+            { icon: FileText, label: "Dokumen" },
+          ].map(({ icon: Icon, label }) => (
+            <div
+              key={label}
+              onClick={() => onOpenAuth("login")}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors opacity-50 group"
+              title="Masuk untuk mengakses"
+            >
+              <Icon size={15} className="text-gray-400" />
+              <span className="text-sm flex-1 text-gray-400">{label}</span>
+              <Lock size={12} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Settings & Help tetap bisa diakses */}
+        <div className="-mx-4 mt-6 flex flex-col mb-4">
+          <div>
+            <div
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors"
+            >
+              <Settings size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
+              <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Settings</span>
+              <ChevronRight size={16} strokeWidth={1.7} className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${settingsOpen ? "rotate-90" : ""}`} />
+            </div>
+            <div className={`overflow-hidden transition-all duration-200 ${settingsOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+              <div className="flex flex-col py-1">
+                <div onClick={() => setPage("pengaturan")} className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "pengaturan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}>Umum</div>
+                <div onClick={() => setPage("preferensi")} className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "preferensi" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}>Preferensi</div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-1">
+            <div
+              onClick={() => setHelpOpen(!helpOpen)}
+              className="flex items-center h-[44px] pl-[32px] pr-[12px] cursor-pointer hover:bg-gray-50 transition-colors"
+            >
+              <Headset size={18} strokeWidth={1.7} className="text-[#242424] shrink-0" />
+              <span className="ml-[8px] text-sm font-medium text-[#242424] flex-1 tracking-tight">Help Center</span>
+              <ChevronRight size={16} strokeWidth={1.7} className={`text-[#1F1F1F] shrink-0 transition-transform duration-200 ${helpOpen ? "rotate-90" : ""}`} />
+            </div>
+            <div className={`overflow-hidden transition-all duration-200 ${helpOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+              <div className="flex flex-col py-1">
+                <div onClick={() => setPage("panduan-pengguna")} className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "panduan-pengguna" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}>Panduan Pengguna</div>
+                <div onClick={() => setPage("hubungi-dukungan")} className={`pl-[58px] py-2 text-sm cursor-pointer ${page === "hubungi-dukungan" ? "text-[#111827] font-medium" : "text-gray-500 hover:text-gray-800"}`}>Hubungi Dukungan</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   // Role Pimpinan sidebar: ONLY Overview, Settings, Help Center (+ account, profile, logout)
   if (isPimpinan) {
     return (
@@ -237,7 +335,7 @@ function Sidebar({
         </div>
 
         {/* User profile & logout */}
-        <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} />
+        <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} isGuest={false} />
 
         <div className="my-3 border-t border-gray-100" />
 
@@ -328,7 +426,7 @@ function Sidebar({
       </div>
 
       {/* User profile — top of sidebar, matches reference layout */}
-      <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} />
+      <UserProfileMenu setPage={setPage} onOpenAuth={onOpenAuth} isGuest={false} />
 
       <div className="my-3 border-t border-gray-100" />
 
@@ -770,7 +868,7 @@ function AIPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
 }
 
 // ── Top Bar (shared) ──────────────────────────────────────────────────────────
-function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[] }) {
+function TopBar({ title, breadcrumbs, onOpenAuth }: { title?: string; breadcrumbs?: string[]; onOpenAuth?: (mode?: AuthMode) => void }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -779,6 +877,7 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
   const { notifications, markAllRead, markRead, unreadCount } = useApp();
   const { currentUser } = useDataStore();
   const isPimpinan = currentUser?.role === "Pimpinan";
+  const isGuest = !currentUser && !localStorage.getItem("access_token");
 
   return (
     <>
@@ -830,109 +929,122 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
 
         {/* RIGHT: action buttons */}
         <div className="flex items-center justify-end gap-1.5 sm:gap-[10px] shrink-0 relative">
-          {/* Desktop Search — hidden for Pimpinan */}
-          {!isPimpinan && (
-            <div className="hidden sm:flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-36 md:w-56 lg:w-64 transition-all focus-within:w-44 md:focus-within:w-64">
-              <Search size={16} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
-              <input className="text-xs sm:text-[14px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
-                placeholder="Search..." />
-              <div className="hidden md:flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[28px] h-[20px] shrink-0">
-                <span className="text-[11px] font-medium text-[#777777]">⌘K</span>
-              </div>
-            </div>
-          )}
-
-          {/* Mobile Search Trigger Button — hidden for Pimpinan */}
-          {!isPimpinan && (
+          {/* Guest: tampilkan tombol login saja */}
+          {isGuest ? (
             <button
-              onClick={() => setMobileSearchOpen(true)}
-              className="sm:hidden w-[34px] h-[34px] rounded-[8px] border border-[#E5E5E5] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
-              title="Cari"
+              onClick={() => onOpenAuth?.("login")}
+              className="flex items-center gap-1.5 h-[34px] sm:h-[38px] px-3 sm:px-4 rounded-[8px] border border-[#111827] bg-[#111827] text-white text-xs sm:text-sm font-semibold hover:bg-[#1F2937] transition-colors shrink-0 cursor-pointer"
             >
-              <Search size={15} strokeWidth={1.7} className="text-[#6F737A]" />
+              <LogIn size={15} strokeWidth={1.7} />
+              <span>Masuk</span>
             </button>
-          )}
-
-          {/* Tanya AI — hidden for Pimpinan */}
-          {!isPimpinan && (
-            <button
-              onClick={() => setShowAI(true)}
-              className="flex items-center gap-1 sm:gap-1.5 h-[34px] sm:h-[38px] px-2 sm:px-3 sm:pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100 shrink-0 cursor-pointer"
-              title="Tanya AI"
-            >
-              <img src={asistenAiLogo} alt="AI Logo" className="w-5 h-5 sm:w-7 sm:h-7 object-contain shrink-0" />
-              <span className="text-xs sm:text-[14px] font-medium text-[#6B7280] hidden md:inline">Tanya AI</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShowNotifications(!showNotifications)}
-            className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors relative shrink-0 cursor-pointer"
-            title="Notifikasi"
-          >
-            <Bell size={16} strokeWidth={1.7} className="text-[#6B7280]" />
-            {unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5">{unreadCount}</span>}
-          </button>
-          <button
-            onClick={() => setShowShare(true)}
-            className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
-            title="Bagikan"
-          >
-            <Share2 size={16} strokeWidth={1.7} className="text-[#6B7280]" />
-          </button>
-
-          {showNotifications && (
+          ) : (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => { setShowNotifications(false); setNotifViewAll(false); }} />
-              <div className="absolute top-full right-0 mt-2 w-[300px] sm:w-[340px] max-w-[calc(100vw-24px)] bg-white border border-gray-200 shadow-lg rounded-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-gray-900">Notifikasi</span>
-                    {unreadCount > 0 && (
-                      <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{unreadCount} baru</span>
-                    )}
+              {/* Desktop Search — hidden for Pimpinan */}
+              {!isPimpinan && (
+                <div className="hidden sm:flex items-center gap-2 bg-[#FFFFFF] border border-[#E5E5E5] rounded-[8px] px-3 h-[38px] w-36 md:w-56 lg:w-64 transition-all focus-within:w-44 md:focus-within:w-64">
+                  <Search size={16} strokeWidth={1.7} className="text-[#6F737A] shrink-0" />
+                  <input className="text-xs sm:text-[14px] text-[#171717] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[#8A8A8A]"
+                    placeholder="Search..." />
+                  <div className="hidden md:flex items-center justify-center bg-[#F6F6F6] border border-[#E7E7E7] rounded-[6px] w-[28px] h-[20px] shrink-0">
+                    <span className="text-[11px] font-medium text-[#777777]">⌘K</span>
                   </div>
-                  <button
-                    onClick={markAllRead}
-                    disabled={unreadCount === 0}
-                    className={`text-[11px] font-medium transition-colors ${unreadCount > 0 ? "hover:underline cursor-pointer" : "text-gray-400 cursor-default"}`}
-                    style={{ color: unreadCount > 0 ? P : undefined }}
-                  >
-                    Tandai semua dibaca
-                  </button>
                 </div>
-                <div className={`overflow-y-auto transition-all duration-200 ${notifViewAll ? "max-h-[460px]" : "max-h-[300px]"}`}>
-                  {(notifViewAll ? notifications : notifications.slice(0, 3)).map((n) => (
-                    <div
-                      key={n.id}
-                      onClick={() => {
-                        markRead(n.id);
-                        if (n.actionPage && !isPimpinan) {
-                          window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: n.actionPage } }));
-                          setShowNotifications(false);
-                        }
-                      }}
-                      className={`p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors ${n.unread ? "bg-purple-50/30" : ""}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.unread ? "bg-purple-500" : "bg-transparent border border-gray-300"}`}></div>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm ${n.unread ? "font-semibold text-gray-900" : "font-medium text-gray-700"}`}>{n.title}</p>
-                          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.message}</p>
-                          <p className="text-[10px] text-gray-400 mt-1.5 font-medium">{n.time}</p>
-                        </div>
+              )}
+
+              {/* Mobile Search Trigger Button — hidden for Pimpinan */}
+              {!isPimpinan && (
+                <button
+                  onClick={() => setMobileSearchOpen(true)}
+                  className="sm:hidden w-[34px] h-[34px] rounded-[8px] border border-[#E5E5E5] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
+                  title="Cari"
+                >
+                  <Search size={15} strokeWidth={1.7} className="text-[#6F737A]" />
+                </button>
+              )}
+
+              {/* Tanya AI — hidden for Pimpinan */}
+              {!isPimpinan && (
+                <button
+                  onClick={() => setShowAI(true)}
+                  className="flex items-center gap-1 sm:gap-1.5 h-[34px] sm:h-[38px] px-2 sm:px-3 sm:pr-4 rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] transition-colors hover:bg-gray-100 shrink-0 cursor-pointer"
+                  title="Tanya AI"
+                >
+                  <img src={asistenAiLogo} alt="AI Logo" className="w-5 h-5 sm:w-7 sm:h-7 object-contain shrink-0" />
+                  <span className="text-xs sm:text-[14px] font-medium text-[#6B7280] hidden md:inline">Tanya AI</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors relative shrink-0 cursor-pointer"
+                title="Notifikasi"
+              >
+                <Bell size={16} strokeWidth={1.7} className="text-[#6B7280]" />
+                {unreadCount > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5">{unreadCount}</span>}
+              </button>
+              <button
+                onClick={() => setShowShare(true)}
+                className="w-[34px] sm:w-[38px] h-[34px] sm:h-[38px] rounded-[8px] border border-[#6B7280] bg-[#FFFFFF] flex items-center justify-center hover:bg-gray-50 transition-colors shrink-0 cursor-pointer"
+                title="Bagikan"
+              >
+                <Share2 size={16} strokeWidth={1.7} className="text-[#6B7280]" />
+              </button>
+
+              {showNotifications && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => { setShowNotifications(false); setNotifViewAll(false); }} />
+                  <div className="absolute top-full right-0 mt-2 w-[300px] sm:w-[340px] max-w-[calc(100vw-24px)] bg-white border border-gray-200 shadow-lg rounded-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-gray-900">Notifikasi</span>
+                        {unreadCount > 0 && (
+                          <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{unreadCount} baru</span>
+                        )}
                       </div>
+                      <button
+                        onClick={markAllRead}
+                        disabled={unreadCount === 0}
+                        className={`text-[11px] font-medium transition-colors ${unreadCount > 0 ? "hover:underline cursor-pointer" : "text-gray-400 cursor-default"}`}
+                        style={{ color: unreadCount > 0 ? P : undefined }}
+                      >
+                        Tandai semua dibaca
+                      </button>
                     </div>
-                  ))}
-                </div>
-                <div className="p-3 border-t border-gray-100 bg-gray-50/50 text-center">
-                  <button
-                    onClick={() => setNotifViewAll((v) => !v)}
-                    className="text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors"
-                  >
-                    {notifViewAll ? "↑ Ciutkan" : `Lihat Semua (${notifications.length})`}
-                  </button>
-                </div>
-              </div>
+                    <div className={`overflow-y-auto transition-all duration-200 ${notifViewAll ? "max-h-[460px]" : "max-h-[300px]"}`}>
+                      {(notifViewAll ? notifications : notifications.slice(0, 3)).map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            markRead(n.id);
+                            if (n.actionPage && !isPimpinan) {
+                              window.dispatchEvent(new CustomEvent("app:navigate", { detail: { page: n.actionPage } }));
+                              setShowNotifications(false);
+                            }
+                          }}
+                          className={`p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors ${n.unread ? "bg-purple-50/30" : ""}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.unread ? "bg-purple-500" : "bg-transparent border border-gray-300"}`}></div>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm ${n.unread ? "font-semibold text-gray-900" : "font-medium text-gray-700"}`}>{n.title}</p>
+                              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.message}</p>
+                              <p className="text-[10px] text-gray-400 mt-1.5 font-medium">{n.time}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-3 border-t border-gray-100 bg-gray-50/50 text-center">
+                      <button
+                        onClick={() => setNotifViewAll((v) => !v)}
+                        className="text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors"
+                      >
+                        {notifViewAll ? "↑ Ciutkan" : `Lihat Semua (${notifications.length})`}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -946,16 +1058,21 @@ function TopBar({ title, breadcrumbs }: { title?: string; breadcrumbs?: string[]
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
 
-function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
+function ProfilePage({ breadcrumbs, onOpenAuth }: { breadcrumbs: string[]; onOpenAuth: (mode?: AuthMode) => void }) {
   const { userProfile, updateUserProfile, isProfileLoading, showToast } = useApp();
+  const { currentUser } = useDataStore();
   const [profileImgUrl, setProfileImgUrl] = useState<string | null>(userProfile?.avatar_url || null);
   const [isBannerOpen, setIsBannerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Change-password state
+  const [pwForm, setPwForm] = useState({ current: "", newPw: "", confirm: "" });
+  const [pwErrors, setPwErrors] = useState<Record<string, string>>({});
+  const [pwLoading, setPwLoading] = useState(false);
+
   // Controlled form state initialized from userProfile
   const [formData, setFormData] = useState({
     nama: userProfile?.nama || "",
-    email: userProfile?.email || "",
     no_telp: userProfile?.no_telp || "",
     jabatan: userProfile?.jabatan || "Administrator",
     lokasi: userProfile?.lokasi || "",
@@ -964,12 +1081,13 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDirty, setIsDirty] = useState(false);
 
+  const displayUsername = currentUser?.username || userProfile?.username || "-";
+
   // Synchronize formData if userProfile changes
   useEffect(() => {
     if (userProfile) {
       setFormData({
         nama: userProfile.nama || "",
-        email: userProfile.email || "",
         no_telp: userProfile.no_telp || "",
         jabatan: userProfile.jabatan || "Administrator",
         lokasi: userProfile.lokasi || "",
@@ -1001,21 +1119,13 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
       errs.nama = "Nama lengkap minimal 3 karakter.";
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!formData.email.trim()) {
-      errs.email = "Alamat email wajib diisi.";
-    } else if (!emailRegex.test(formData.email.trim())) {
-      errs.email = "Format alamat email tidak valid.";
-    }
-
-    // Telepon validation (Indonesian phone format or general valid phone)
-    const phoneRegex = /^(\+62|62|0)8[0-9]{8,12}$/;
-    const cleanPhone = formData.no_telp.replace(/[\s-]/g, "");
-    if (!formData.no_telp.trim()) {
-      errs.no_telp = "Nomor telepon wajib diisi.";
-    } else if (!phoneRegex.test(cleanPhone)) {
-      errs.no_telp = "Format nomor telepon tidak valid (contoh: 081234567890 atau +6281234567890).";
+    // Telepon validation (Indonesian phone format or general valid phone, optional)
+    if (formData.no_telp.trim()) {
+      const phoneRegex = /^(\+62|62|0)8[0-9]{8,12}$/;
+      const cleanPhone = formData.no_telp.replace(/[\s-]/g, "");
+      if (!phoneRegex.test(cleanPhone)) {
+        errs.no_telp = "Format nomor telepon tidak valid (contoh: 081234567890 atau +6281234567890).";
+      }
     }
 
     // Lokasi validation: max 100 chars
@@ -1027,6 +1137,28 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
     return Object.keys(errs).length === 0;
   };
 
+  const handleChangePassword = async () => {
+    const errs: Record<string, string> = {};
+    if (!pwForm.current.trim()) errs.current = "Kata sandi saat ini wajib diisi.";
+    if (!pwForm.newPw.trim()) errs.newPw = "Kata sandi baru wajib diisi.";
+    else if (pwForm.newPw.length < 8) errs.newPw = "Kata sandi baru minimal 8 karakter.";
+    if (pwForm.newPw !== pwForm.confirm) errs.confirm = "Konfirmasi kata sandi tidak cocok.";
+    setPwErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    try {
+      setPwLoading(true);
+      await authService.changePassword(pwForm.current, pwForm.newPw);
+      showToast("Kata sandi berhasil diperbarui!", "success");
+      setPwForm({ current: "", newPw: "", confirm: "" });
+      setPwErrors({});
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Gagal memperbarui kata sandi.";
+      showToast(msg, "error");
+    } finally {
+      setPwLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!validate()) {
       showToast("Mohon perbaiki kesalahan input pada form.", "error");
@@ -1036,7 +1168,6 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
     try {
       await updateUserProfile({
         nama: formData.nama.trim(),
-        email: formData.email.trim(),
         no_telp: formData.no_telp.trim(),
         lokasi: formData.lokasi.trim(),
       });
@@ -1051,7 +1182,6 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
   const handleCancel = () => {
     setFormData({
       nama: userProfile?.nama || "",
-      email: userProfile?.email || "",
       no_telp: userProfile?.no_telp || "",
       jabatan: userProfile?.jabatan || "Administrator",
       lokasi: userProfile?.lokasi || "",
@@ -1073,7 +1203,7 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
 
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
-      <TopBar breadcrumbs={breadcrumbs} />
+      <TopBar breadcrumbs={breadcrumbs} onOpenAuth={onOpenAuth} />
       <div className="px-8 py-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -1164,6 +1294,21 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
                {/* Kolom Informasi Pribadi */}
                <div className="space-y-4">
                  <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-2">Informasi Pribadi</h3>
+
+                 {/* Username — read-only */}
+                 <div>
+                   <div className="flex items-center justify-between mb-1.5">
+                     <label className="block text-xs font-medium text-gray-700">Username</label>
+                     <span className="text-[10px] text-gray-400 italic">Read-only</span>
+                   </div>
+                   <input
+                     type="text"
+                     value={displayUsername}
+                     readOnly
+                     className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed outline-none font-mono"
+                   />
+                   <p className="text-[11px] text-gray-400 mt-1">Username tidak dapat diubah sendiri. Hubungi Admin Sistem.</p>
+                 </div>
                  
                  <div>
                    <label className="block text-xs font-medium text-gray-700 mb-1.5">
@@ -1187,30 +1332,7 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
                  </div>
                  
                  <div>
-                   <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                     Alamat Email <span className="text-red-500">*</span>
-                   </label>
-                   <input 
-                     type="email" 
-                     value={formData.email} 
-                     onChange={(e) => handleChange("email", e.target.value)}
-                     placeholder="nama@apps.ipb.ac.id"
-                     className={`w-full text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 ${
-                       errors.email ? "border-red-400 focus:ring-red-400 bg-red-50/20" : "border-gray-200"
-                     }`} 
-                     style={!errors.email ? { '--tw-ring-color': P } as React.CSSProperties : undefined} 
-                   />
-                   {errors.email && (
-                     <p className="text-[11px] text-red-500 mt-1 flex items-center gap-1">
-                       <span>⚠️</span> {errors.email}
-                     </p>
-                   )}
-                 </div>
-                 
-                 <div>
-                   <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                     Nomor Telepon <span className="text-red-500">*</span>
-                   </label>
+                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Nomor Telepon</label>
                    <input 
                      type="tel" 
                      value={formData.no_telp} 
@@ -1235,19 +1357,16 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
                  
                  <div>
                    <div className="flex items-center justify-between mb-1.5">
-                     <label className="block text-xs font-medium text-gray-700">Jabatan</label>
-                     <span className="text-[10px] text-gray-400 italic">Read-only (Dikelola Administrator)</span>
+                     <label className="block text-xs font-medium text-gray-700">Role / Jabatan</label>
+                     <span className="text-[10px] text-gray-400 italic">Read-only (Dikelola Admin Sistem)</span>
                    </div>
-                   <select 
-                     className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed outline-none" 
-                     disabled
+                   <input
+                     type="text"
                      value={formData.jabatan}
-                   >
-                     <option value="Administrator">Administrator</option>
-                     <option value="Operator Aset">Operator Aset</option>
-                     <option value="Verifikator">Verifikator</option>
-                   </select>
-                   <p className="text-[11px] text-gray-400 mt-1">Jabatan ditentukan secara terpusat oleh sistem.</p>
+                     readOnly
+                     className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed outline-none"
+                   />
+                   <p className="text-[11px] text-gray-400 mt-1">Role ditentukan secara terpusat oleh Admin Sistem.</p>
                  </div>
                  
                  <div>
@@ -1270,6 +1389,63 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
                        </p>
                      ) : <span />}
                      <span className="text-[10px] text-gray-400">{formData.lokasi.length}/100 karakter</span>
+                   </div>
+                 </div>
+
+                 {/* Ubah Kata Sandi */}
+                 <div className="pt-2">
+                   <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-2 mb-4 flex items-center gap-2">
+                     <Lock size={14} className="text-gray-500" /> Ubah Kata Sandi
+                   </h3>
+                   <div className="space-y-3">
+                     <div>
+                       <label className="block text-xs font-medium text-gray-700 mb-1.5">Kata Sandi Saat Ini <span className="text-red-500">*</span></label>
+                       <input
+                         type="password"
+                         value={pwForm.current}
+                         onChange={(e) => setPwForm(p => ({ ...p, current: e.target.value }))}
+                         placeholder="••••••••"
+                         className={`w-full text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 ${
+                           pwErrors.current ? "border-red-400 bg-red-50/20" : "border-gray-200"
+                         }`}
+                       />
+                       {pwErrors.current && <p className="text-[11px] text-red-500 mt-1">⚠️ {pwErrors.current}</p>}
+                     </div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-700 mb-1.5">Kata Sandi Baru <span className="text-red-500">*</span></label>
+                       <input
+                         type="password"
+                         value={pwForm.newPw}
+                         onChange={(e) => setPwForm(p => ({ ...p, newPw: e.target.value }))}
+                         placeholder="Minimal 8 karakter"
+                         className={`w-full text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 ${
+                           pwErrors.newPw ? "border-red-400 bg-red-50/20" : "border-gray-200"
+                         }`}
+                       />
+                       {pwErrors.newPw && <p className="text-[11px] text-red-500 mt-1">⚠️ {pwErrors.newPw}</p>}
+                     </div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-700 mb-1.5">Konfirmasi Kata Sandi Baru <span className="text-red-500">*</span></label>
+                       <input
+                         type="password"
+                         value={pwForm.confirm}
+                         onChange={(e) => setPwForm(p => ({ ...p, confirm: e.target.value }))}
+                         placeholder="Ulangi kata sandi baru"
+                         className={`w-full text-sm px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 ${
+                           pwErrors.confirm ? "border-red-400 bg-red-50/20" : "border-gray-200"
+                         }`}
+                       />
+                       {pwErrors.confirm && <p className="text-[11px] text-red-500 mt-1">⚠️ {pwErrors.confirm}</p>}
+                     </div>
+                     <button
+                       type="button"
+                       onClick={handleChangePassword}
+                       disabled={pwLoading}
+                       className="w-full py-2 text-white text-xs font-semibold rounded-lg transition-colors hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-50"
+                       style={{ backgroundColor: P }}
+                     >
+                       {pwLoading ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Memperbarui...</span></> : "Perbarui Kata Sandi"}
+                     </button>
                    </div>
                  </div>
                </div>
@@ -1306,14 +1482,14 @@ function ProfilePage({ breadcrumbs }: { breadcrumbs: string[] }) {
   );
 }
 
-function SettingsPage({ breadcrumbs }: { breadcrumbs: string[] }) {
+function SettingsPage({ breadcrumbs, onOpenAuth }: { breadcrumbs: string[]; onOpenAuth: (mode?: AuthMode) => void }) {
   const [tab, setTab] = useState("general");
   const [toggles, setToggles] = useState([true, true, true, false]);
   const { language, setLanguage, showToast } = useApp();
   
   return (
     <main className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
-      <TopBar breadcrumbs={breadcrumbs} />
+      <TopBar breadcrumbs={breadcrumbs} onOpenAuth={onOpenAuth} />
       <div className="px-8 py-6 space-y-6">
         <h1 className="text-xl font-bold text-gray-900">Pengaturan Akun</h1>
         
@@ -1390,25 +1566,9 @@ function SettingsPage({ breadcrumbs }: { breadcrumbs: string[] }) {
                    <h2 className="text-lg font-bold text-gray-900">Keamanan & Kata Sandi</h2>
                    <p className="text-xs text-gray-500 mt-1">Kelola kata sandi Anda dan amankan akun Anda.</p>
                  </div>
-                 
-                 <div className="space-y-4">
-                   <div className="border border-gray-200 rounded-xl p-5">
-                     <h3 className="text-sm font-semibold text-gray-900 mb-4">Ubah Kata Sandi</h3>
-                     <div className="space-y-3 max-w-sm">
-                       <div>
-                         <label className="block text-xs font-medium text-gray-700 mb-1.5">Kata Sandi Saat Ini</label>
-                         <input type="password" placeholder="••••••••" className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1" style={{ '--tw-ring-color': P } as React.CSSProperties} />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-medium text-gray-700 mb-1.5">Kata Sandi Baru</label>
-                         <input type="password" placeholder="••••••••" className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-1" style={{ '--tw-ring-color': P } as React.CSSProperties} />
-                       </div>
-                       <div className="pt-2">
-                         <button onClick={() => showToast("Kata sandi berhasil diperbarui!")} className="px-4 py-2 bg-gray-900 text-white text-xs font-semibold rounded-lg hover:bg-black transition-colors">Perbarui Kata Sandi</button>
-                       </div>
-                     </div>
-                   </div>
-                 </div>
+                 <p className="text-sm text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
+                   Untuk mengubah kata sandi, silakan gunakan menu <strong>Profil Saya</strong> → bagian <strong>Ubah Kata Sandi</strong>.
+                 </p>
                </div>
             )}
             
@@ -1502,12 +1662,24 @@ function MainContent({ page, onOpenAuth }: { page: string; onOpenAuth: (mode?: A
   const { theme, setTheme, tableDensity, setTableDensity, showToast, userProfile } = useApp();
   const { currentUser } = useDataStore();
 
+  const isGuest = !currentUser && !localStorage.getItem("access_token");
   const isPimpinan = currentUser?.role === "Pimpinan";
+
+  // Pages accessible without login
+  const guestAllowed = ["ringkasan", "pengaturan", "preferensi", "panduan-pengguna", "hubungi-dukungan"];
+
+  // Route guard: guest trying to access protected pages → redirect to Overview + open login
+  if (isGuest && !guestAllowed.includes(page)) {
+    // Trigger login modal via event so we don't call hook conditionally
+    setTimeout(() => window.dispatchEvent(new CustomEvent("app:openAuth", { detail: { mode: "login" } })), 0);
+    return <OverviewPage topBar={<TopBar breadcrumbs={["Overview"]} onOpenAuth={onOpenAuth} />} onOpenAuth={onOpenAuth} />;
+  }
+
   const pimpinanAllowed = ["ringkasan", "pengaturan", "preferensi", "panduan-pengguna", "hubungi-dukungan", "profile"];
 
   // Route guard: if Pimpinan tries to render any other page, redirect to Overview
   if (isPimpinan && !pimpinanAllowed.includes(page)) {
-    return <OverviewPage topBar={<TopBar breadcrumbs={["Overview"]} />} onOpenAuth={onOpenAuth} />;
+    return <OverviewPage topBar={<TopBar breadcrumbs={["Overview"]} onOpenAuth={onOpenAuth} />} onOpenAuth={onOpenAuth} />;
   }
 
   const PAGE_TITLES: Record<string, string> = {
@@ -1568,15 +1740,15 @@ function MainContent({ page, onOpenAuth }: { page: string; onOpenAuth: (mode?: A
   else currentBreadcrumbs = [page];
 
   if (page === "ringkasan") {
-    return <OverviewPage topBar={<TopBar breadcrumbs={currentBreadcrumbs} />} onOpenAuth={onOpenAuth} />;
+    return <OverviewPage topBar={<TopBar breadcrumbs={currentBreadcrumbs} onOpenAuth={onOpenAuth} />} onOpenAuth={onOpenAuth} />;
   }
 
   if (page === "profile") {
-    return <ProfilePage breadcrumbs={currentBreadcrumbs} />;
+    return <ProfilePage breadcrumbs={currentBreadcrumbs} onOpenAuth={onOpenAuth} />;
   }
 
   if (page === "pengaturan") {
-    return <SettingsPage breadcrumbs={currentBreadcrumbs} />;
+    return <SettingsPage breadcrumbs={currentBreadcrumbs} onOpenAuth={onOpenAuth} />;
   }
 
   if (["pm", "atb", "atl", "al"].includes(page)) {
@@ -2017,10 +2189,10 @@ function AppContent() {
     ensureAuthToken();
   }, []);
 
-  const handleOpenAuth = (mode: AuthMode = "login") => {
+  const handleOpenAuth = useCallback((mode: AuthMode = "login") => {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
-  };
+  }, []);
 
   // Auto-open login popup if user has no session on first load
   const { currentUser } = useDataStore();
@@ -2051,11 +2223,23 @@ function AppContent() {
     }
   }, [currentUser?.role, page]);
 
+  // Listen for openAuth events from MainContent guest redirect
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const mode = (e as CustomEvent).detail?.mode || "login";
+      handleOpenAuth(mode as AuthMode);
+    };
+    window.addEventListener("app:openAuth", handler);
+    return () => window.removeEventListener("app:openAuth", handler);
+  }, [handleOpenAuth]);
+
+  const isGuest = !currentUser && !localStorage.getItem("access_token");
+
   return (
     <div className="flex h-screen w-full bg-white overflow-hidden relative font-sans">
       {/* SIDEBAR DESKTOP: Sembunyi di mobile (hidden), tampil di desktop (md:flex), lebar tetap w-64 */}
       <div className="hidden md:flex flex-shrink-0 w-64 border-r border-gray-100 bg-white h-full">
-        <Sidebar page={page} setPage={setPage} onOpenAuth={handleOpenAuth} />
+        <Sidebar page={page} setPage={setPage} onOpenAuth={handleOpenAuth} isGuest={isGuest} />
       </div>
 
       {/* MOBILE DRAWER: Backdrop & Sidebar saat tombol Menu diklik di layar kecil */}
@@ -2088,6 +2272,7 @@ function AppContent() {
                   setMobileMenuOpen(false);
                 }} 
                 onOpenAuth={handleOpenAuth}
+                isGuest={isGuest}
               />
             </div>
           </div>

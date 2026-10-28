@@ -25,7 +25,7 @@ export class UsersController {
 
   @Post()
   @ApiOperation({ summary: "Tambah pengguna baru (khusus Admin Sistem)" })
-  create(@Body() body: Partial<User> & { password?: string }) {
+  create(@Body() body: { username: string; password?: string; role: string; unit: string; jabatan?: string }) {
     return this.service.create(body);
   }
 
@@ -39,6 +39,12 @@ export class UsersController {
   @ApiOperation({ summary: "Ubah role pengguna (hanya bisa ke Pimpinan, Admin Pusat, Pekerja SO)" })
   updateRole(@Param("id") id: string, @Body("role") newRole: string) {
     return this.service.updateRole(id, newRole);
+  }
+
+  @Patch(":id/reset-password")
+  @ApiOperation({ summary: "Reset password pengguna oleh Admin Sistem" })
+  resetPassword(@Param("id") id: string, @Body("password") password?: string) {
+    return this.service.resetPassword(id, password);
   }
 
   @Patch(":id/revoke")

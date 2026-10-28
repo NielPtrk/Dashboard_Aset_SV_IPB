@@ -8,7 +8,10 @@ export class User {
   @Column()
   nama: string;
 
-  @Column({ unique: true })
+  @Column({ unique: true, nullable: true })
+  username: string;
+
+  @Column({ nullable: true })
   email: string;
 
   @Column({ select: false })
@@ -21,13 +24,22 @@ export class User {
   unit: string;
 
   @Column({ nullable: true })
+  jabatan: string;
+
+  @Column({ nullable: true })
   no_telp: string;
 
   @Column({ default: true })
   aktif: boolean;
 
-  @Column({ default: "menunggu_verifikasi" })
-  status: string; // 'menunggu_verifikasi' | 'menunggu_persetujuan' | 'aktif' | 'ditolak' | 'nonaktif'
+  @Column({ default: "aktif" })
+  status: string; // 'aktif' | 'nonaktif'
+
+  @Column({ default: false })
+  must_change_password: boolean;
+
+  @Column({ default: 1 })
+  token_version: number;
 
   @Column({ nullable: true })
   harapan_role: string;

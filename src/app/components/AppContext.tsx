@@ -8,6 +8,7 @@ import type { UpdateProfilePayload } from "../services/authService";
 export interface UserProfile {
   id: string;
   nama: string;
+  username?: string;
   email: string;
   no_telp: string;
   jabatan: string;

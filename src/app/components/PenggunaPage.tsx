@@ -6,10 +6,11 @@ import {
   type UserAccountStatus,
 } from "./DataStore";
 import {
-  Search, Download, Plus, X, Edit2, Trash2,
+  Search, Plus, X, Edit2, Trash2,
   Shield, UserCheck, UserX, Users, User,
   Check, AlertTriangle, Activity,
-  Building2, Key, Eye, Clock, Lock, CheckCircle2, XCircle, RefreshCw
+  Building2, Key, Eye, EyeOff, Lock, CheckCircle2,
+  RefreshCw, Copy, RotateCcw, KeyRound
 } from "lucide-react";
 
 // ── Role Definitions & Matrix ─────────────────────────────────────────────────
@@ -100,7 +101,7 @@ const MATRIX: PermMatrix = {
   },
 };
 
-// ── Badges & Helpers ──────────────────────────────────────────────────────────
+// ── Helpers & Badges ──────────────────────────────────────────────────────────
 export const ROLE_COLOR: Record<UserRole, string> = {
   "Admin Sistem":         "bg-red-50 text-red-700 border-red-200",
   "Pimpinan":             "bg-purple-50 text-purple-700 border-purple-200",
@@ -121,50 +122,27 @@ export function RoleBadge({ role }: { role: UserRole }) {
 }
 
 export function StatusBadge({ status }: { status: UserAccountStatus | string }) {
-  switch (status) {
-    case "aktif":
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-green-50 text-green-700 border-green-200">
-          <UserCheck size={11} />
-          Aktif
-        </span>
-      );
-    case "menunggu_persetujuan":
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-amber-50 text-amber-700 border-amber-200 animate-pulse">
-          <Clock size={11} />
-          Menunggu Persetujuan
-        </span>
-      );
-    case "menunggu_verifikasi":
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-sky-50 text-sky-700 border-sky-200">
-          <Clock size={11} />
-          Verifikasi Email
-        </span>
-      );
-    case "ditolak":
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-700 border-rose-200">
-          <XCircle size={11} />
-          Ditolak
-        </span>
-      );
-    case "nonaktif":
-    default:
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-gray-100 text-gray-500 border-gray-200">
-          <UserX size={11} />
-          Nonaktif
-        </span>
-      );
+  if (status === "aktif") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-green-50 text-green-700 border-green-200">
+        <UserCheck size={11} />
+        Aktif
+      </span>
+    );
   }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-gray-100 text-gray-500 border-gray-200">
+      <UserX size={11} />
+      Nonaktif
+    </span>
+  );
 }
 
-function initials(nama: string): string {
-  if (!nama) return "U";
-  return nama
-    .split(" ")
+function initials(name: string): string {
+  if (!name) return "U";
+  return name
+    .trim()
+    .split(/\s+/)
     .filter(Boolean)
     .map((n) => n[0])
     .join("")
@@ -173,42 +151,41 @@ function initials(nama: string): string {
 }
 
 function isAntiLockout(u: UserRecord): boolean {
-  const email = (u.email || "").toLowerCase().trim();
+  const username = (u.username || u.nama || "").toLowerCase().trim();
   return (
-    email === "othniel.patrick@apps.ipb.ac.id" ||
-    email === "othnielpatrick@apps.ipb.ac.id" ||
+    username === "admin sistem" ||
     u.id === "U-001" ||
-    u.nama === "Othniel Patrick Limbong" ||
     u.role === "Admin Sistem"
   );
+}
+
+function generateRandomPassword(): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*";
+  let pwd = "Sv";
+  for (let i = 0; i < 8; i++) {
+    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pwd + "1";
 }
 
 // ── Detail Drawer ─────────────────────────────────────────────────────────────
 function UserDetailDrawer({
   user,
   onClose,
-  onUpdateRole,
-  onApprove,
+  onEdit,
+  onResetPassword,
   onDelete,
 }: {
   user: UserRecord;
   onClose: () => void;
-  onUpdateRole: (newRole: UserRole) => void;
-  onApprove: (action: "setujui" | "tolak", role?: UserRole, catatan?: string) => void;
+  onEdit: () => void;
+  onResetPassword: () => void;
   onDelete: () => void;
 }) {
   const [detailTab, setDetailTab] = useState<"profil" | "akses">("profil");
-  const [selectedRole, setSelectedRole] = useState<UserRole>(() => {
-    if (user.status === "menunggu_persetujuan" || user.status === "menunggu_verifikasi") {
-      const h = user.harapan_role as UserRole;
-      if (h && (ASSIGNABLE_ROLES as readonly string[]).includes(h)) return h;
-      return "Pekerja Stock Opname";
-    }
-    return user.role;
-  });
-  const [catatan, setCatatan] = useState("");
   const protectedUser = isAntiLockout(user);
   const perms = MATRIX[user.role as keyof typeof MATRIX] ?? {};
+  const displayName = user.username || user.nama;
 
   return (
     <>
@@ -217,18 +194,20 @@ function UserDetailDrawer({
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100 flex items-start gap-3 bg-gray-50/50">
           <div className="w-12 h-12 rounded-xl bg-gray-900 flex items-center justify-center text-white text-base font-bold shrink-0 shadow-xs">
-            {initials(user.nama)}
+            {initials(displayName)}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-base font-bold text-gray-900 truncate">{user.nama}</p>
+              <p className="text-base font-bold text-gray-900 truncate" title={displayName}>
+                {displayName}
+              </p>
               {protectedUser && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-300">
                   <Shield size={10} /> Superadmin
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-0.5 truncate">{user.email}</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">{user.jabatan || "Pengguna Sistem"}</p>
             <div className="flex items-center gap-2 mt-2">
               <RoleBadge role={user.role} />
               <StatusBadge status={user.status} />
@@ -247,7 +226,7 @@ function UserDetailDrawer({
               detailTab === "profil" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            Profil & Status
+            Profil Akun
           </button>
           <button
             onClick={() => setDetailTab("akses")}
@@ -266,126 +245,44 @@ function UserDetailDrawer({
               <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3 shadow-xs">
                 {[
                   { label: "ID Pengguna", value: user.id },
-                  { label: "Nama Lengkap", value: user.nama },
-                  { label: "Email", value: user.email },
-                  { label: "NIP", value: user.nip || "—" },
+                  { label: "Username", value: displayName },
                   { label: "Jabatan", value: user.jabatan || "—" },
                   { label: "Unit Kerja", value: user.unit || "Pusat" },
-                  { label: "Harapan Role", value: user.harapan_role || "—" },
+                  { label: "Role Sistem", value: user.role },
+                  { label: "Status Akun", value: user.status === "aktif" ? "Aktif" : "Nonaktif" },
                   { label: "Login Terakhir", value: user.lastLogin || "Belum pernah login" },
-                  { label: "Catatan Admin", value: user.catatan_admin || "—" },
+                  { label: "Wajib Ubah Sandi", value: user.must_change_password ? "Ya (Login Pertama)" : "Tidak" },
                 ].map((row) => (
                   <div key={row.label} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
-                    <span className="text-gray-400 font-medium w-32 shrink-0">{row.label}</span>
-                    <span className="text-gray-800 font-semibold text-right flex-1 truncate">{row.value}</span>
+                    <span className="text-gray-400 font-medium w-36 shrink-0">{row.label}</span>
+                    <span className="text-gray-800 font-semibold text-right flex-1 truncate" title={String(row.value)}>
+                      {row.value}
+                    </span>
                   </div>
                 ))}
               </div>
 
-              {/* Pending Approval Controls */}
-              {(user.status === "menunggu_persetujuan" || user.status === "menunggu_verifikasi") && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
-                      <Clock size={14} /> Permintaan Pendaftaran Akun
-                    </div>
-                    {user.status === "menunggu_verifikasi" ? (
-                      <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
-                        Menunggu Verifikasi Email
-                      </span>
-                    ) : (
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
-                        Email Terverifikasi
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-amber-700 leading-relaxed">
-                    Pengguna mengajukan pendaftaran akun dengan permohonan role:{" "}
-                    <span className="font-bold underline text-amber-900">{user.harapan_role || "Pekerja Stock Opname"}</span>.
-                  </p>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">
-                      Tetapkan Role Saat Menyetujui
-                    </label>
-                    <select
-                      value={selectedRole}
-                      onChange={(e) => setSelectedRole(e.target.value as UserRole)}
-                      className="w-full text-xs border border-amber-300 rounded-lg p-2 bg-white text-gray-800 outline-none font-medium"
-                    >
-                      {ASSIGNABLE_ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">
-                      Catatan Persetujuan / Penolakan (Opsional)
-                    </label>
-                    <input
-                      type="text"
-                      value={catatan}
-                      onChange={(e) => setCatatan(e.target.value)}
-                      placeholder="Contoh: Disetujui sesuai SK Penugasan SV..."
-                      className="w-full text-xs border border-amber-300 rounded-lg p-2 bg-white text-gray-800 outline-none"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      onClick={() => onApprove("setujui", selectedRole, catatan)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
-                    >
-                      <CheckCircle2 size={14} /> Setujui Pendaftaran
-                    </button>
-                    <button
-                      onClick={() => onApprove("tolak", undefined, catatan)}
-                      className="py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      <XCircle size={14} /> Tolak
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Role Change for Active Users */}
-              {!protectedUser && user.status === "aktif" && (
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-800">Ubah Role Pengguna</span>
-                    <span className="text-[10px] text-gray-400">4-Role RBAC Baku</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedRole}
-                      onChange={(e) => setSelectedRole(e.target.value as UserRole)}
-                      className="flex-1 text-xs border border-gray-300 rounded-lg p-2 bg-white text-gray-800 outline-none"
-                    >
-                      {ASSIGNABLE_ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      disabled={selectedRole === user.role}
-                      onClick={() => onUpdateRole(selectedRole)}
-                      className="px-3 py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Simpan
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Action Buttons in Drawer */}
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button
+                  onClick={onEdit}
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border border-gray-200 text-gray-800 hover:bg-gray-50 rounded-xl text-xs font-bold transition-colors shadow-2xs"
+                >
+                  <Edit2 size={13} /> Edit Data Akun
+                </button>
+                <button
+                  onClick={onResetPassword}
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
+                >
+                  <KeyRound size={13} /> Reset Password
+                </button>
+              </div>
 
               {protectedUser && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
                   <Shield size={15} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-800 leading-relaxed">
-                    <span className="font-bold">Akun Terproteksi (Anti-Lockout).</span> Akun Superadmin Utama tidak dapat diubah rolenya, dinonaktifkan, atau dihapus guna mencegah lockout sistem.
+                    <span className="font-bold">Akun Terproteksi (Anti-Lockout).</span> Akun Admin Sistem Utama tidak dapat diubah rolenya, dinonaktifkan, atau dihapus guna mencegah lockout sistem.
                   </p>
                 </div>
               )}
@@ -454,25 +351,50 @@ function UserDetailDrawer({
 // ── Add User Modal ────────────────────────────────────────────────────────────
 function AddUserModal({
   onClose,
-  onAdd,
+  onCreated,
 }: {
   onClose: () => void;
-  onAdd: (payload: { nama: string; email: string; nip?: string; jabatan?: string; role: UserRole; unit: string }) => void;
+  onCreated: (credentials: { username: string; password: string }) => void;
 }) {
-  const [nama, setNama] = useState("");
-  const [email, setEmail] = useState("");
-  const [nip, setNip] = useState("");
+  const store = useDataStore();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [jabatan, setJabatan] = useState("");
   const [role, setRole] = useState<UserRole>("Pekerja Stock Opname");
   const [unit, setUnit] = useState("Sekolah Vokasi");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const valid = nama.trim().length > 2 && email.includes("@") && role && unit;
+  const cleanUsername = username.trim().replace(/\s+/g, " ");
+  const isUsernameValid = cleanUsername.length >= 3 && cleanUsername.length <= 100;
+  const isPasswordValid = password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
+  const valid = isUsernameValid && isPasswordValid && role && unit && !loading;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleGeneratePassword = () => {
+    const generated = generateRandomPassword();
+    setPassword(generated);
+    setShowPassword(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) return;
-    onAdd({ nama: nama.trim(), email: email.trim(), nip: nip.trim(), jabatan: jabatan.trim(), role, unit });
-    onClose();
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      await store.addUser({
+        username: cleanUsername,
+        password,
+        jabatan: jabatan.trim(),
+        role,
+        unit,
+      });
+      onCreated({ username: cleanUsername, password });
+    } catch (err: any) {
+      setErrorMsg(err.message || "Gagal membuat pengguna");
+      setLoading(false);
+    }
   };
 
   return (
@@ -481,60 +403,77 @@ function AddUserModal({
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <div>
             <h2 className="text-base font-bold text-gray-900">Tambah Pengguna Baru</h2>
-            <p className="text-[11px] text-gray-500">Daftarkan akun langsung dengan role terotorisasi</p>
+            <p className="text-[11px] text-gray-500">Buat akun resmi yang langsung aktif</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
             <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto max-h-[75vh]">
+          {errorMsg && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs px-3 py-2.5 rounded-lg flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nama Lengkap *</label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Username *</label>
             <input
               required
-              value={nama}
-              onChange={(e) => setNama(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               placeholder="Contoh: Dr. Ir. Budi Santoso, M.Si"
               className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none focus:border-gray-900"
             />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Username sekaligus nama yang tampil dan dipakai untuk login.
+            </p>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Email IPB / Resmi *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-700">Password *</label>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+              >
+                Buat acak
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                required
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimal 8 karakter (huruf & angka)"
+                className="w-full text-xs border border-gray-200 rounded-lg pl-3 pr-10 py-2.5 outline-none focus:border-gray-900 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Jabatan (Opsional)</label>
             <input
-              required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@apps.ipb.ac.id"
+              value={jabatan}
+              onChange={(e) => setJabatan(e.target.value)}
+              placeholder="Contoh: Staf Perlengkapan / Dosen"
               className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none focus:border-gray-900"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5">NIP</label>
-              <input
-                value={nip}
-                onChange={(e) => setNip(e.target.value)}
-                placeholder="19XXXXXXXX XXXXXX X XXX"
-                className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Jabatan</label>
-              <input
-                value={jabatan}
-                onChange={(e) => setJabatan(e.target.value)}
-                placeholder="Staf Perlengkapan"
-                className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Role Sistem *</label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Role Sistem *</label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as UserRole)}
@@ -549,7 +488,7 @@ function AddUserModal({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Unit Kerja / Kampus *</label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Unit Kerja / Kampus *</label>
             <select
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
@@ -563,9 +502,9 @@ function AddUserModal({
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-            <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-800">
-              Pengguna yang ditambahkan langsung oleh Admin Sistem akan berstatus <span className="font-bold">Aktif</span> dan dapat langsung masuk ke dashboard.
+            <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Akun langsung aktif. Sampaikan username dan password kepada pengguna.
             </p>
           </div>
 
@@ -582,7 +521,368 @@ function AddUserModal({
               disabled={!valid}
               className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-gray-900 rounded-lg hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <Check size={14} /> Tambahkan
+              <Check size={14} /> {loading ? "Menyimpan..." : "Tambahkan Pengguna"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Summary Modal (Tampil Sekali dengan Tombol Salin) ─────────────────────────
+function SummaryCredentialModal({
+  title,
+  username,
+  password,
+  onClose,
+}: {
+  title: string;
+  username: string;
+  password: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const text = `Kredensial Akun SV IPB:\nUsername: ${username}\nPassword: ${password}\n\n* Harap ganti kata sandi saat pertama kali masuk.`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-emerald-50/70">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-600" />
+            <h2 className="text-base font-bold text-emerald-950">{title}</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-emerald-100 text-emerald-800">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-gray-600">
+            Berikut adalah kredensial yang telah dibuat. Simpan atau sampaikan langsung kepada pengguna sekarang.{" "}
+            <span className="font-bold text-gray-900">Password tidak dapat dilihat lagi setelah jendela ini ditutup.</span>
+          </p>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+            <div>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Username</span>
+              <p className="text-sm font-bold text-gray-900 font-mono mt-0.5">{username}</p>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Password Sementara</span>
+              <p className="text-sm font-bold text-indigo-700 font-mono mt-0.5 tracking-wide">{password}</p>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-800">
+              Pengguna wajib mengganti kata sandi sementara ini saat login pertama kali.
+            </p>
+          </div>
+
+          <div className="pt-2 flex items-center justify-between gap-3">
+            <button
+              onClick={handleCopy}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl text-xs font-bold transition-all shadow-xs ${
+                copied
+                  ? "bg-emerald-600 text-white"
+                  : "bg-gray-900 hover:bg-black text-white"
+              }`}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              <span>{copied ? "Berhasil Disalin!" : "Salin Kredensial"}</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="py-2.5 px-5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              Selesai & Tutup
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Reset Password Modal ──────────────────────────────────────────────────────
+function ResetPasswordModal({
+  user,
+  onClose,
+  onSuccess,
+}: {
+  user: UserRecord;
+  onClose: () => void;
+  onSuccess: (credentials: { username: string; password: string }) => void;
+}) {
+  const store = useDataStore();
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleGenerate = () => {
+    setPassword(generateRandomPassword());
+    setShowPassword(true);
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password && (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password))) {
+      setErrorMsg("Password minimal 8 karakter dengan kombinasi huruf dan angka.");
+      return;
+    }
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      const res = await store.resetUserPassword(user.id, password || undefined);
+      onSuccess({ username: res.username || user.username || user.nama, password: res.password });
+    } catch (err: any) {
+      setErrorMsg(err.message || "Gagal mereset kata sandi");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Reset Kata Sandi Pengguna</h2>
+            <p className="text-[11px] text-gray-500">Akun: {user.username || user.nama}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={handleReset} className="p-6 space-y-4">
+          {errorMsg && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs px-3 py-2.5 rounded-lg flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600">
+            Sistem akan mengganti kata sandi pengguna ini dan membatalkan seluruh sesi aktifnya. Pengguna wajib mengganti kata sandi saat masuk kembali.
+          </p>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-700">Password Sementara Baru</label>
+              <button
+                type="button"
+                onClick={handleGenerate}
+                className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+              >
+                Buat acak
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Kosongkan untuk dibuatkan acak otomatis"
+                className="w-full text-xs border border-gray-200 rounded-lg pl-3 pr-10 py-2.5 outline-none focus:border-gray-900 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-40 transition-colors shadow-xs"
+            >
+              <KeyRound size={14} /> {loading ? "Mereset..." : "Reset Sandi"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit User Modal ───────────────────────────────────────────────────────────
+function EditUserModal({
+  user,
+  onClose,
+  onSuccess,
+}: {
+  user: UserRecord;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const store = useDataStore();
+  const protectedUser = isAntiLockout(user);
+  const [username, setUsername] = useState(user.username || user.nama || "");
+  const [jabatan, setJabatan] = useState(user.jabatan || "");
+  const [unit, setUnit] = useState(user.unit || "Sekolah Vokasi");
+  const [role, setRole] = useState<UserRole>(user.role);
+  const [status, setStatus] = useState<"aktif" | "nonaktif">(user.status === "aktif" ? "aktif" : "nonaktif");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const cleanUsername = username.trim().replace(/\s+/g, " ");
+  const isUsernameValid = cleanUsername.length >= 3 && cleanUsername.length <= 100;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isUsernameValid) {
+      setErrorMsg("Username harus 3-100 karakter.");
+      return;
+    }
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      await store.updateUser(user.id, {
+        username: cleanUsername,
+        nama: cleanUsername,
+        jabatan: jabatan.trim(),
+        unit,
+        role: protectedUser ? user.role : role,
+        status: protectedUser ? "aktif" : status,
+        aktif: protectedUser ? true : status === "aktif",
+      });
+      onSuccess();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Gagal memperbarui pengguna");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Edit Pengguna</h2>
+            <p className="text-[11px] text-gray-500">ID: {user.id}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {errorMsg && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs px-3 py-2.5 rounded-lg flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Username *</label>
+            <input
+              required
+              disabled={protectedUser}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none focus:border-gray-900 disabled:bg-gray-100"
+            />
+            {protectedUser && (
+              <p className="text-[10px] text-amber-700 mt-1 font-semibold">Username Admin Utama terproteksi.</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Jabatan</label>
+            <input
+              value={jabatan}
+              onChange={(e) => setJabatan(e.target.value)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 outline-none focus:border-gray-900"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Unit Kerja / Kampus *</label>
+            <select
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 bg-white text-gray-800 outline-none"
+            >
+              <option value="Sekolah Vokasi">Sekolah Vokasi</option>
+              <option value="Kampus Cilibende">Kampus Cilibende</option>
+              <option value="Kampus Gunung Gede">Kampus Gunung Gede</option>
+              <option value="Pusat">Pusat</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Role Sistem *</label>
+            <select
+              disabled={protectedUser}
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 bg-white text-gray-800 outline-none disabled:bg-gray-100"
+            >
+              {protectedUser ? (
+                <option value="Admin Sistem">Admin Sistem</option>
+              ) : (
+                ASSIGNABLE_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Status Akun *</label>
+            <select
+              disabled={protectedUser}
+              value={status}
+              onChange={(e) => setStatus(e.target.value as "aktif" | "nonaktif")}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2.5 bg-white text-gray-800 outline-none disabled:bg-gray-100"
+            >
+              <option value="aktif">Aktif</option>
+              <option value="nonaktif">Nonaktif</option>
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Perubahan role, username, atau status akan otomatis membatalkan sesi login pengguna tersebut.
+            </p>
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-gray-900 rounded-lg hover:bg-black disabled:opacity-40 transition-colors shadow-xs"
+            >
+              <Check size={14} /> {loading ? "Menyimpan..." : "Simpan Perubahan"}
             </button>
           </div>
         </form>
@@ -707,11 +1007,11 @@ function UnitPenggunaTab({ users }: { users: UserRecord[] }) {
               {unitUsers.map((u) => (
                 <div key={u.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/50 transition-colors">
                   <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    {initials(u.nama)}
+                    {initials(u.username || u.nama)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-900 truncate">{u.nama}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
+                    <p className="text-xs font-bold text-gray-900 truncate">{u.username || u.nama}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{u.jabatan || "Pengguna Sistem"}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <RoleBadge role={u.role} />
@@ -772,7 +1072,7 @@ function AktivitasLoginTab({ users }: { users: UserRecord[] }) {
           <p className="text-sm font-bold text-gray-800 mt-2 truncate">
             {lastActiveUser?.lastLogin || "Hari ini, 08:30 WIB"}
           </p>
-          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{lastActiveUser?.nama || "Admin"}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{lastActiveUser?.username || lastActiveUser?.nama || "Admin"}</p>
         </div>
       </div>
 
@@ -829,8 +1129,8 @@ function AktivitasLoginTab({ users }: { users: UserRecord[] }) {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/30 text-[11px] font-semibold text-gray-400 uppercase">
-                <th className="py-3 px-4">Pengguna</th>
-                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-4">Username</th>
+                <th className="py-3 px-4">Jabatan</th>
                 <th className="py-3 px-4">Role</th>
                 <th className="py-3 px-4">Login Terakhir</th>
                 <th className="py-3 px-4 text-right">Status Akun</th>
@@ -839,8 +1139,8 @@ function AktivitasLoginTab({ users }: { users: UserRecord[] }) {
             <tbody className="divide-y divide-gray-50 text-xs">
               {users.map((u) => (
                 <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 px-4 font-bold text-gray-900">{u.nama}</td>
-                  <td className="py-3 px-4 text-gray-600">{u.email}</td>
+                  <td className="py-3 px-4 font-bold text-gray-900">{u.username || u.nama}</td>
+                  <td className="py-3 px-4 text-gray-600">{u.jabatan || "—"}</td>
                   <td className="py-3 px-4">
                     <RoleBadge role={u.role} />
                   </td>
@@ -873,6 +1173,9 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
+  const [resettingUser, setResettingUser] = useState<UserRecord | null>(null);
+  const [summaryData, setSummaryData] = useState<{ title: string; username: string; password: string } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Auto fetch users from server when PenggunaPage mounts
@@ -889,30 +1192,20 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
     }
   };
 
-  // Helper: check if a user is awaiting admin approval
-  const isPendingApproval = (u: UserRecord) =>
-    u.status === "menunggu_persetujuan" || u.status === "menunggu_verifikasi";
-
-  // Approval filter counts
-  const pendingUsers = useMemo(
-    () => users.filter(isPendingApproval),
-    [users]
-  );
-
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
-      const q = (search || "").toLowerCase();
+      const q = (search || "").toLowerCase().trim();
+      const displayName = (u.username || u.nama || "").toLowerCase();
       const matchQ =
-        (u.nama || "").toLowerCase().includes(q) ||
-        (u.email || "").toLowerCase().includes(q) ||
-        (u.unit ? u.unit.toLowerCase().includes(q) : false) ||
-        (u.nip ? u.nip.toLowerCase().includes(q) : false);
+        displayName.includes(q) ||
+        (u.jabatan ? u.jabatan.toLowerCase().includes(q) : false) ||
+        (u.unit ? u.unit.toLowerCase().includes(q) : false);
 
       const matchR = roleFilter === "Semua Role" || u.role === roleFilter;
       const matchS =
         statusFilter === "Semua Status" ||
         u.status === statusFilter ||
-        (statusFilter === "menunggu_persetujuan" && isPendingApproval(u));
+        (statusFilter === "nonaktif" && u.status !== "aktif");
 
       return matchQ && matchR && matchS;
     });
@@ -922,7 +1215,7 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
     ? users.find((u) => u.id === selectedUserId)
     : undefined;
 
-  // KPI counts
+  // KPI counts (tanpa kartu menunggu approval)
   const kpi = useMemo(
     () => ({
       total: users.length,
@@ -930,47 +1223,21 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
       pimpinan: users.filter((u) => u.role === "Pimpinan").length,
       adminPusat: users.filter((u) => u.role === "Admin Pusat").length,
       pekerja: users.filter((u) => u.role === "Pekerja Stock Opname").length,
-      pending: pendingUsers.length,
+      aktif: users.filter((u) => u.status === "aktif").length,
     }),
-    [users, pendingUsers]
+    [users]
   );
 
-  // Handlers
-  const handleUpdateRole = async (newRole: UserRole) => {
-    if (!selectedUserId) return;
-    try {
-      await store.updateUserRole(selectedUserId, newRole);
-    } catch (err: any) {
-      alert(err.message || "Gagal mengubah role");
-    }
-  };
-
-  const handleApprove = async (
-    action: "setujui" | "tolak",
-    role?: UserRole,
-    catatan?: string
-  ) => {
-    if (!selectedUserId) return;
-    try {
-      await store.approveUser(selectedUserId, action, role, catatan);
-      setSelectedUserId(null);
-    } catch (err: any) {
-      alert(err.message || "Gagal memproses persetujuan");
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!selectedUserId) return;
-    const target = users.find((u) => u.id === selectedUserId);
-    if (!target) return;
-    if (isAntiLockout(target)) {
+  const handleDelete = async (u: UserRecord) => {
+    if (isAntiLockout(u)) {
       alert("Akun Superadmin Utama dilindungi anti-lockout!");
       return;
     }
-    if (confirm(`Hapus pengguna "${target.nama}" (${target.email}) dari sistem?`)) {
+    const name = u.username || u.nama;
+    if (confirm(`Hapus pengguna "${name}" dari sistem?`)) {
       try {
-        await store.deleteUser(selectedUserId);
-        setSelectedUserId(null);
+        await store.deleteUser(u.id);
+        if (selectedUserId === u.id) setSelectedUserId(null);
       } catch (err: any) {
         alert(err.message || "Gagal menghapus pengguna");
       }
@@ -987,7 +1254,7 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
           <div>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">Pengguna & RBAC</h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Kelola akun resmi SV IPB, 4-role baku sistem, otorisasi menu, dan persetujuan registrasi.
+              Kelola akun resmi SV IPB, 4-role baku sistem, hak akses menu, dan kredensial pengguna.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1009,43 +1276,14 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Pending Approval Alert Banner */}
-        {pendingUsers.length > 0 && (
-          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center justify-between gap-4 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-                <Clock size={18} />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-amber-900">
-                  {pendingUsers.length} Permintaan Registrasi Menunggu Persetujuan
-                </p>
-                <p className="text-[11px] text-amber-800 mt-0.5">
-                  Calon pengguna telah mendaftar dan menunggu persetujuan otorisasi role oleh Admin Sistem.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setActiveTab("daftar");
-                setStatusFilter("menunggu_persetujuan");
-              }}
-              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap shadow-xs"
-            >
-              Tinjau Sekarang ({pendingUsers.length})
-            </button>
-          </div>
-        )}
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        {/* KPI Cards (5 Cards) */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
             { label: "Total Pengguna", value: kpi.total, color: "#111827", icon: Users },
             { label: "Admin Sistem", value: kpi.admin, color: "#DC2626", icon: Shield },
             { label: "Pimpinan", value: kpi.pimpinan, color: "#7C3AED", icon: Key },
             { label: "Admin Pusat", value: kpi.adminPusat, color: "#2563EB", icon: User },
             { label: "Pekerja SO", value: kpi.pekerja, color: "#059669", icon: UserCheck },
-            { label: "Menunggu Approval", value: kpi.pending, color: "#D97706", icon: Clock },
           ].map((card) => {
             const Icon = card.icon;
             return (
@@ -1103,7 +1341,7 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Cari nama, email, NIP, atau unit..."
+                  placeholder="Cari username, jabatan, atau unit..."
                   className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-gray-200 rounded-lg outline-none focus:border-gray-900"
                 />
               </div>
@@ -1128,9 +1366,6 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
               >
                 <option value="Semua Status">Semua Status</option>
                 <option value="aktif">Aktif</option>
-                <option value="menunggu_persetujuan">Menunggu Persetujuan</option>
-                <option value="menunggu_verifikasi">Verifikasi Email</option>
-                <option value="ditolak">Ditolak</option>
                 <option value="nonaktif">Nonaktif</option>
               </select>
 
@@ -1151,10 +1386,9 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/70 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                    <th className="py-3 px-4">Nama & Akun</th>
-                    <th className="py-3 px-4">Email</th>
+                    <th className="py-3 px-4">Username & Akun</th>
+                    <th className="py-3 px-4">Jabatan & Unit</th>
                     <th className="py-3 px-4">Role</th>
-                    <th className="py-3 px-4">Unit Kerja</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Login Terakhir</th>
                     <th className="py-3 px-4 text-right">Aksi</th>
@@ -1163,6 +1397,7 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
                 <tbody className="divide-y divide-gray-50 text-xs">
                   {filteredUsers.map((u) => {
                     const isProtected = isAntiLockout(u);
+                    const displayName = u.username || u.nama;
                     return (
                       <tr
                         key={u.id}
@@ -1172,26 +1407,28 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                              {initials(u.nama)}
+                              {initials(displayName)}
                             </div>
-                            <div>
+                            <div className="min-w-0 max-w-[200px] sm:max-w-xs">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-gray-900">{u.nama}</span>
+                                <span className="font-bold text-gray-900 truncate" title={displayName}>
+                                  {displayName}
+                                </span>
                                 {isProtected && (
-                                  <Shield size={11} className="text-amber-600" title="Superadmin (Anti-Lockout)" />
+                                  <Shield size={11} className="text-amber-600 shrink-0" title="Superadmin (Anti-Lockout)" />
                                 )}
                               </div>
-                              <p className="text-[10px] text-gray-400">
-                                {u.nip ? `NIP ${u.nip}` : u.jabatan || "Pengguna Sistem"}
-                              </p>
+                              <p className="text-[10px] text-gray-400 font-mono">ID: {u.id}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{u.email}</td>
+                        <td className="py-3 px-4">
+                          <p className="font-medium text-gray-800">{u.jabatan || "—"}</p>
+                          <p className="text-[10px] text-gray-400">{u.unit || "Pusat"}</p>
+                        </td>
                         <td className="py-3 px-4 whitespace-nowrap">
                           <RoleBadge role={u.role} />
                         </td>
-                        <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{u.unit || "Pusat"}</td>
                         <td className="py-3 px-4 whitespace-nowrap">
                           <StatusBadge status={u.status} />
                         </td>
@@ -1200,36 +1437,35 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
-                            {isPendingApproval(u) ? (
+                            <button
+                              onClick={() => setSelectedUserId(u.id)}
+                              className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                              title="Lihat Detail"
+                            >
+                              <Eye size={13} />
+                            </button>
+                            <button
+                              onClick={() => setEditingUser(u)}
+                              className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                              title="Edit Pengguna"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              onClick={() => setResettingUser(u)}
+                              className="p-1.5 rounded hover:bg-amber-50 text-gray-400 hover:text-amber-600 transition-colors"
+                              title="Reset Password"
+                            >
+                              <KeyRound size={13} />
+                            </button>
+                            {!isProtected && (
                               <button
-                                onClick={() => setSelectedUserId(u.id)}
-                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-md shadow-2xs flex items-center gap-1"
+                                onClick={() => handleDelete(u)}
+                                className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition-colors"
+                                title="Hapus Pengguna"
                               >
-                                <Clock size={11} /> Tinjau / Setujui
+                                <Trash2 size={13} />
                               </button>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => setSelectedUserId(u.id)}
-                                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                                  title="Lihat Detail"
-                                >
-                                  <Eye size={13} />
-                                </button>
-                                {!isProtected && (
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(`Hapus pengguna "${u.nama}"?`)) {
-                                        store.deleteUser(u.id);
-                                      }
-                                    }}
-                                    className="p-1.5 rounded hover:bg-rose-50 text-gray-400 hover:text-rose-600 transition-colors"
-                                    title="Hapus Pengguna"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                )}
-                              </>
                             )}
                           </div>
                         </td>
@@ -1270,9 +1506,17 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
         <UserDetailDrawer
           user={selectedUser}
           onClose={() => setSelectedUserId(null)}
-          onUpdateRole={handleUpdateRole}
-          onApprove={handleApprove}
-          onDelete={handleDelete}
+          onEdit={() => {
+            const u = selectedUser;
+            setSelectedUserId(null);
+            setEditingUser(u);
+          }}
+          onResetPassword={() => {
+            const u = selectedUser;
+            setSelectedUserId(null);
+            setResettingUser(u);
+          }}
+          onDelete={() => handleDelete(selectedUser)}
         />
       )}
 
@@ -1280,17 +1524,49 @@ export function PenggunaPage({ topBar }: { topBar?: React.ReactNode }) {
       {showAddModal && (
         <AddUserModal
           onClose={() => setShowAddModal(false)}
-          onAdd={async (payload) => {
-            try {
-              await store.addUser({
-                ...payload,
-                status: "aktif",
-                aktif: true,
-              });
-            } catch (err: any) {
-              alert(err.message || "Gagal menambahkan pengguna");
-            }
+          onCreated={(creds) => {
+            setShowAddModal(false);
+            setSummaryData({
+              title: "Akun Berhasil Dibuat",
+              username: creds.username,
+              password: creds.password,
+            });
           }}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSuccess={() => setEditingUser(null)}
+        />
+      )}
+
+      {/* Reset Password Modal */}
+      {resettingUser && (
+        <ResetPasswordModal
+          user={resettingUser}
+          onClose={() => setResettingUser(null)}
+          onSuccess={(creds) => {
+            setResettingUser(null);
+            setSummaryData({
+              title: "Kata Sandi Berhasil Direset",
+              username: creds.username,
+              password: creds.password,
+            });
+          }}
+        />
+      )}
+
+      {/* Summary Credential Modal */}
+      {summaryData && (
+        <SummaryCredentialModal
+          title={summaryData.title}
+          username={summaryData.username}
+          password={summaryData.password}
+          onClose={() => setSummaryData(null)}
         />
       )}
     </main>

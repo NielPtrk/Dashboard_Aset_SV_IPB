@@ -1,12 +1,57 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, OnModuleInit, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  OnModuleInit,
+  Logger,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Like, In } from "typeorm";
+import { Repository, In } from "typeorm";
 import * as bcrypt from "bcryptjs";
 import { User } from "./user.entity";
 import { NotificationsService } from "../notifications/notifications.service";
 
-export const BAKU_ROLES = ["Admin Sistem", "Pimpinan", "Admin Pusat", "Pekerja Stock Opname"] as const;
-export type BakuRole = typeof BAKU_ROLES[number];
+export const BAKU_ROLES = [
+  "Admin Sistem",
+  "Pimpinan",
+  "Admin Pusat",
+  "Pekerja Stock Opname",
+] as const;
+export type BakuRole = (typeof BAKU_ROLES)[number];
+
+export function normalizeUsername(str: string): string {
+  if (!str || typeof str !== "string") return "";
+  return str.trim().replace(/\s+/g, " ");
+}
+
+export function validateUsernameFormat(username: string): { valid: boolean; message?: string } {
+  const norm = normalizeUsername(username);
+  if (norm.length < 3 || norm.length > 100) {
+    return { valid: false, message: "Username harus memiliki panjang antara 3 hingga 100 karakter." };
+  }
+  // Allow letters, numbers, spaces, and punctuation: . , - ' _ ( )
+  const allowedRegex = /^[\p{L}\p{N}\s.,'_\-()]+$/u;
+  if (!allowedRegex.test(norm)) {
+    return { valid: false, message: "Username hanya boleh memuat huruf, angka, spasi, dan tanda baca gelar (. , - ' _ ( ))." };
+  }
+  if (/<[a-z][\s\S]*>/i.test(norm) || /[<>{}\\]/.test(norm)) {
+    return { valid: false, message: "Username memuat karakter berbahaya yang tidak diizinkan." };
+  }
+  return { valid: true };
+}
+
+export function validatePasswordFormat(password: string): { valid: boolean; message?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, message: "Kata sandi minimal 8 karakter." };
+  }
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  if (!hasLetter || !hasNumber) {
+    return { valid: false, message: "Kata sandi wajib memuat kombinasi huruf dan angka." };
+  }
+  return { valid: true };
+}
 
 @Injectable()
 export class UsersService implements OnModuleInit {
@@ -20,63 +65,72 @@ export class UsersService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      // 1. Purge the 4 dummy users from the database if they exist
+      // 1. Purge dummy test emails if any exist
       const dummyEmails = [
         "rina@ipb.ac.id", "budi@ipb.ac.id", "anita@ipb.ac.id", "rudi@ipb.ac.id",
         "rina.m@apps.ipb.ac.id", "budis@apps.ipb.ac.id", "anita.w@apps.ipb.ac.id", "rudih@ipb.ac.id"
       ];
       await this.repo.delete({ email: In(dummyEmails) });
 
-      // Promote any pending verification registrations to menunggu_persetujuan
-      await this.repo.createQueryBuilder()
-        .update()
-        .set({ status: "menunggu_persetujuan" })
-        .where("status = :s", { s: "menunggu_verifikasi" })
-        .execute();
-
-      // 2. Ensure the primary Admin Sistem (Othniel Patrick Limbong) exists and is protected.
-      // Cari dengan email lama ATAU email baru (setelah reset script), atau berdasarkan role Admin Sistem.
-      const canonicalEmail = "othnielpatrick@apps.ipb.ac.id"; // email baru (tanpa titik)
-      const legacyEmail    = "othniel.patrick@apps.ipb.ac.id"; // email lama (dengan titik)
-
-      let admin = await this.repo.findOne({ where: { email: canonicalEmail } });
-      if (!admin) {
-        admin = await this.repo.findOne({ where: { email: legacyEmail } });
+      // 2. Synchronize existing accounts: populate username from nama and migrate pending/rejected statuses
+      const allUsers = await this.repo.find();
+      for (const u of allUsers) {
+        let needsSave = false;
+        if (!u.username && u.nama) {
+          u.username = normalizeUsername(u.nama);
+          needsSave = true;
+        }
+        if (u.status === "menunggu_verifikasi" || u.status === "menunggu_persetujuan" || u.status === "ditolak") {
+          u.status = "nonaktif";
+          u.aktif = false;
+          needsSave = true;
+        }
+        if (u.token_version === undefined || u.token_version === null) {
+          u.token_version = 1;
+          needsSave = true;
+        }
+        if (needsSave) {
+          await this.repo.save(u);
+        }
       }
+
+      // 3. Ensure primary Admin Sistem account exists with username 'Admin Sistem'
+      let admin = await this.repo.findOne({ where: { username: "Admin Sistem" } });
       if (!admin) {
-        // Fallback: cari berdasarkan role Admin Sistem
         admin = await this.repo.findOne({ where: { role: "Admin Sistem" } });
       }
 
       if (!admin) {
-        // Akun belum ada sama sekali → buat dengan email kanonik & password default
-        const hash = await bcrypt.hash("admin123", 10);
+        // Initial setup only if no Admin Sistem exists
+        const defaultAdminPassword = process.env.ADMIN_INIT_PASSWORD || "Admin123";
+        const hash = await bcrypt.hash(defaultAdminPassword, 10);
         admin = this.repo.create({
-          nama: "Othniel Patrick Limbong",
-          email: canonicalEmail,
+          username: "Admin Sistem",
+          nama: "Admin Sistem",
           password_hash: hash,
           role: "Admin Sistem",
           unit: "Sekolah Vokasi (SV)",
+          jabatan: "Admin Sistem",
           status: "aktif",
           aktif: true,
+          must_change_password: false,
+          token_version: 1,
         });
         await this.repo.save(admin);
-        this.logger.log(`Akun Admin Sistem utama (${canonicalEmail}) berhasil diinisialisasi.`);
+        this.logger.log("Akun Admin Sistem utama (username: 'Admin Sistem') berhasil diinisialisasi.");
       } else {
-        // Akun ditemukan → pastikan properti kanonik benar (JANGAN timpa password_hash)
         let needsSave = false;
-        if (admin.email !== canonicalEmail) {
-          admin.email = canonicalEmail;
+        if (admin.username !== "Admin Sistem") {
+          admin.username = "Admin Sistem";
+          admin.nama = "Admin Sistem";
           needsSave = true;
-          this.logger.log(`Email Admin Sistem diperbarui dari ${legacyEmail} ke ${canonicalEmail}.`);
         }
         if (admin.role !== "Admin Sistem") { admin.role = "Admin Sistem"; needsSave = true; }
-        if (admin.unit !== "Sekolah Vokasi (SV)") { admin.unit = "Sekolah Vokasi (SV)"; needsSave = true; }
         if (!admin.aktif) { admin.aktif = true; needsSave = true; }
         if (admin.status !== "aktif") { admin.status = "aktif"; needsSave = true; }
         if (needsSave) {
           await this.repo.save(admin);
-          this.logger.log(`Akun Admin Sistem utama (${canonicalEmail}) disinkronkan.`);
+          this.logger.log("Akun Admin Sistem utama (username: 'Admin Sistem') disinkronkan.");
         }
       }
     } catch (err) {
@@ -86,29 +140,26 @@ export class UsersService implements OnModuleInit {
 
   async findAll(params: { page?: number; limit?: number; search?: string; role?: string; status?: string } = {}) {
     const { page = 1, limit = 50, search, role, status } = params;
-    const where: any = {};
+    const qb = this.repo.createQueryBuilder("u");
 
     if (search) {
-      where.nama = Like(`%${search}%`);
+      qb.andWhere(
+        "(LOWER(u.username) LIKE LOWER(:s) OR LOWER(u.nama) LIKE LOWER(:s) OR LOWER(u.unit) LIKE LOWER(:s) OR LOWER(u.jabatan) LIKE LOWER(:s))",
+        { s: `%${search}%` },
+      );
     }
-    if (role && role !== "Semua") {
-      where.role = role;
+    if (role && role !== "Semua" && role !== "Semua Role") {
+      qb.andWhere("u.role = :role", { role });
     }
-    if (status && status !== "Semua") {
-      if (status === "menunggu_persetujuan") {
-        where.status = In(["menunggu_persetujuan", "menunggu_verifikasi"]);
-      } else {
-        where.status = status;
-      }
+    if (status && status !== "Semua" && status !== "Semua Status") {
+      qb.andWhere("u.status = :status", { status });
     }
 
-    const [data, total] = await this.repo.findAndCount({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      order: { created_at: "DESC" },
-    });
+    qb.orderBy("u.created_at", "DESC")
+      .skip((page - 1) * limit)
+      .take(limit);
 
+    const [data, total] = await qb.getManyAndCount();
     return { data, total, page, limit };
   }
 
@@ -118,43 +169,69 @@ export class UsersService implements OnModuleInit {
     return user;
   }
 
-  async findByEmail(email: string): Promise<User & { password_hash: string }> {
+  async findByIdWithPassword(id: string): Promise<User & { password_hash: string }> {
+    const user = await this.repo
+      .createQueryBuilder("u")
+      .addSelect("u.password_hash")
+      .where("u.id = :id", { id })
+      .getOne();
+    if (!user) throw new NotFoundException(`User dengan ID ${id} tidak ditemukan.`);
+    return user as User & { password_hash: string };
+  }
+
+  async findByUsername(rawUsername: string): Promise<(User & { password_hash: string }) | null> {
+    const norm = normalizeUsername(rawUsername);
+    if (!norm) return null;
+
     return this.repo
       .createQueryBuilder("u")
       .addSelect("u.password_hash")
-      .where("u.email = :email", { email: email.toLowerCase().trim() })
-      .getOne() as Promise<User & { password_hash: string }>;
+      .where("LOWER(TRIM(REGEXP_REPLACE(COALESCE(u.username, u.nama), '\\s+', ' ', 'g'))) = LOWER(:username)", {
+        username: norm,
+      })
+      .getOne() as Promise<(User & { password_hash: string }) | null>;
   }
 
-  async findByVerificationToken(token: string): Promise<User | null> {
-    return this.repo.findOne({ where: { verification_token: token } });
-  }
-
-  async findByResetToken(token: string): Promise<User | null> {
-    return this.repo.findOne({ where: { reset_password_token: token } });
-  }
-
-  async create(payload: Partial<User> & { password?: string }): Promise<User> {
-    // Admin Sistem CANNOT be created or assigned through API/Registration
+  async create(payload: {
+    username: string;
+    password?: string;
+    role: string;
+    unit: string;
+    jabatan?: string;
+  }): Promise<User> {
     if (payload.role === "Admin Sistem") {
-      throw new BadRequestException("Role Admin Sistem hanya ada 1 untuk akun utama dan tidak dapat diberikan kepada akun lain.");
+      throw new BadRequestException("Role Admin Sistem hanya untuk akun utama dan tidak dapat diberikan kepada akun lain.");
     }
 
-    const email = payload.email?.toLowerCase().trim();
-    if (!email) throw new BadRequestException("Email wajib diisi.");
+    const normUsername = normalizeUsername(payload.username);
+    const uVal = validateUsernameFormat(normUsername);
+    if (!uVal.valid) {
+      throw new BadRequestException(uVal.message);
+    }
 
-    const existing = await this.repo.findOne({ where: { email } });
-    if (existing) throw new BadRequestException("Email sudah terdaftar dalam sistem.");
+    // Check duplicate username (case-insensitive & collapsed whitespace)
+    const existing = await this.findByUsername(normUsername);
+    if (existing) {
+      throw new BadRequestException("Username sudah terdaftar dalam sistem.");
+    }
 
-    const { password, ...rest } = payload;
-    const hash = password ? await bcrypt.hash(password, 10) : "";
+    const password = payload.password || "";
+    const pVal = validatePasswordFormat(password);
+    if (!pVal.valid) {
+      throw new BadRequestException(pVal.message);
+    }
+
+    const hash = await bcrypt.hash(password, 10);
     const user = this.repo.create({
-      status: rest.status || "aktif",
-      aktif: rest.aktif !== undefined ? rest.aktif : true,
-      ...rest,
-      email,
-      unit: rest.unit || "Sekolah Vokasi (SV)",
-      role: rest.role || "Tanpa Role",
+      username: normUsername,
+      nama: normUsername, // Username sekaligus nama yang tampil di seluruh sistem
+      jabatan: payload.jabatan ? payload.jabatan.trim() : null,
+      role: payload.role || "Pekerja Stock Opname",
+      unit: payload.unit || "Sekolah Vokasi",
+      status: "aktif",
+      aktif: true,
+      must_change_password: false,
+      token_version: 1,
       password_hash: hash,
     });
     return this.repo.save(user);
@@ -163,110 +240,185 @@ export class UsersService implements OnModuleInit {
   async update(id: string, payload: Partial<User> & { password?: string }): Promise<User> {
     const user = await this.findById(id);
 
-    // Protection: Admin Sistem role cannot be altered via generic update
-    if (user.role === "Admin Sistem" && payload.role && payload.role !== "Admin Sistem") {
-      throw new ForbiddenException("Role Admin Sistem dilindungi dari perubahan (anti-terkunci).");
+    // Anti-lockout: Admin Sistem main account protection
+    const isMainAdmin = user.id === "U-001" || user.username === "Admin Sistem" || user.role === "Admin Sistem";
+
+    if (isMainAdmin && payload.role && payload.role !== "Admin Sistem") {
+      throw new ForbiddenException("Role Admin Sistem dilindungi dari perubahan (anti-lockout).");
     }
 
-    if (payload.role === "Admin Sistem" && user.email !== "othnielpatrick@apps.ipb.ac.id" && user.email !== "othniel.patrick@apps.ipb.ac.id") {
+    if (isMainAdmin && (payload.status === "nonaktif" || payload.aktif === false)) {
+      throw new ForbiddenException("Akun Admin Sistem utama tidak dapat dinonaktifkan (anti-lockout).");
+    }
+
+    if (payload.role === "Admin Sistem" && !isMainAdmin) {
       throw new BadRequestException("Role Admin Sistem tidak dapat diberikan kepada akun lain.");
     }
 
-    const { password, ...rest } = payload;
-    if (password) {
-      (rest as User & { password_hash: string }).password_hash = await bcrypt.hash(password, 10);
+    let tokenNeedsIncrement = false;
+
+    // Username update
+    if (payload.username && payload.username !== user.username) {
+      const normUsername = normalizeUsername(payload.username);
+      const uVal = validateUsernameFormat(normUsername);
+      if (!uVal.valid) {
+        throw new BadRequestException(uVal.message);
+      }
+
+      const existing = await this.findByUsername(normUsername);
+      if (existing && existing.id !== id) {
+        throw new BadRequestException("Username sudah terdaftar dalam sistem.");
+      }
+
+      user.username = normUsername;
+      user.nama = normUsername; // Keep synchronized
+      tokenNeedsIncrement = true;
     }
-    await this.repo.update(id, rest);
+
+    if (payload.role && payload.role !== user.role) {
+      user.role = payload.role;
+      tokenNeedsIncrement = true;
+    }
+
+    if (payload.status && payload.status !== user.status) {
+      user.status = payload.status;
+      user.aktif = payload.status === "aktif";
+      tokenNeedsIncrement = true;
+    }
+
+    if (payload.aktif !== undefined && payload.aktif !== user.aktif) {
+      user.aktif = payload.aktif;
+      user.status = payload.aktif ? "aktif" : "nonaktif";
+      tokenNeedsIncrement = true;
+    }
+
+    if (payload.unit !== undefined) {
+      user.unit = payload.unit;
+    }
+
+    if (payload.jabatan !== undefined) {
+      user.jabatan = payload.jabatan;
+    }
+
+    if (payload.password) {
+      const pVal = validatePasswordFormat(payload.password);
+      if (!pVal.valid) {
+        throw new BadRequestException(pVal.message);
+      }
+      user.password_hash = await bcrypt.hash(payload.password, 10);
+      user.must_change_password = !isMainAdmin;
+      tokenNeedsIncrement = true;
+    }
+
+    if (tokenNeedsIncrement) {
+      user.token_version = (user.token_version || 1) + 1;
+    }
+
+    await this.repo.save(user);
     return this.findById(id);
+  }
+
+  async resetPassword(
+    id: string,
+    temporaryPassword?: string,
+  ): Promise<{ message: string; username: string; password: string }> {
+    const user = await this.findById(id);
+
+    const isMainAdmin = user.id === "U-001" || user.username === "Admin Sistem" || user.role === "Admin Sistem";
+
+    const newPassword =
+      temporaryPassword && temporaryPassword.trim().length >= 8
+        ? temporaryPassword.trim()
+        : this.generateRandomPassword();
+
+    const pVal = validatePasswordFormat(newPassword);
+    if (!pVal.valid) {
+      throw new BadRequestException(pVal.message);
+    }
+
+    user.password_hash = await bcrypt.hash(newPassword, 10);
+    user.must_change_password = false;
+    user.token_version = (user.token_version || 1) + 1; // Invalidate old session tokens
+    await this.repo.save(user);
+
+    this.logger.log(`Password akun ${user.username || user.nama} berhasil direset oleh Admin Sistem.`);
+
+    return {
+      message: "Kata sandi berhasil diatur ulang.",
+      username: user.username || user.nama,
+      password: newPassword,
+    };
+  }
+
+  private generateRandomPassword(): string {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const digits = "0123456789";
+    let pwd = "";
+    for (let i = 0; i < 6; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    for (let i = 0; i < 3; i++) {
+      pwd += digits.charAt(Math.floor(Math.random() * digits.length));
+    }
+    return pwd;
   }
 
   async updateRole(id: string, newRole: string): Promise<User> {
     const user = await this.findById(id);
 
-    // Anti-lockout: Admin Sistem cannot be demoted or changed
-    if (user.role === "Admin Sistem" || user.email === "othnielpatrick@apps.ipb.ac.id" || user.email === "othniel.patrick@apps.ipb.ac.id") {
-      throw new ForbiddenException("Akun Admin Sistem dilindungi dan tidak dapat diubah rolenya (anti-terkunci).");
+    const isMainAdmin = user.id === "U-001" || user.username === "Admin Sistem" || user.role === "Admin Sistem";
+    if (isMainAdmin) {
+      throw new ForbiddenException("Akun Admin Sistem dilindungi dan tidak dapat diubah rolenya (anti-lockout).");
     }
 
-    // Role Admin Sistem cannot be assigned to anyone else
     if (newRole === "Admin Sistem") {
       throw new BadRequestException("Role Admin Sistem tidak dapat diberikan kepada akun lain.");
     }
 
     const validRoles = ["Pimpinan", "Admin Pusat", "Pekerja Stock Opname", "Tanpa Role"];
     if (!validRoles.includes(newRole)) {
-      throw new BadRequestException(`Role tidak valid. Pilihan role: Pimpinan, Admin Pusat, Pekerja Stock Opname.`);
+      throw new BadRequestException("Role tidak valid. Pilihan role: Pimpinan, Admin Pusat, Pekerja Stock Opname.");
     }
 
     user.role = newRole;
+    user.token_version = (user.token_version || 1) + 1;
     await this.repo.save(user);
-    this.logger.log(`Role user ${user.nama} (${user.email}) diubah menjadi ${newRole}`);
+    this.logger.log(`Role user ${user.username || user.nama} diubah menjadi ${newRole}`);
     return user;
   }
 
   async revokeRole(id: string): Promise<User> {
     const user = await this.findById(id);
 
-    // Anti-lockout: Admin Sistem cannot have role revoked
-    if (user.role === "Admin Sistem" || user.email === "othnielpatrick@apps.ipb.ac.id" || user.email === "othniel.patrick@apps.ipb.ac.id") {
-      throw new ForbiddenException("Role Admin Sistem tidak dapat dicabut (anti-terkunci).");
+    const isMainAdmin = user.id === "U-001" || user.username === "Admin Sistem" || user.role === "Admin Sistem";
+    if (isMainAdmin) {
+      throw new ForbiddenException("Role Admin Sistem tidak dapat dicabut (anti-lockout).");
     }
 
     user.role = "Tanpa Role";
+    user.token_version = (user.token_version || 1) + 1;
     await this.repo.save(user);
-    this.logger.log(`Role user ${user.nama} (${user.email}) telah dicabut (menjadi Tanpa Role)`);
+    this.logger.log(`Role user ${user.username || user.nama} telah dicabut (menjadi Tanpa Role)`);
     return user;
   }
 
-  async approveRegistration(id: string, dto: { action: "setujui" | "tolak"; role?: string; catatan?: string }): Promise<User> {
-    const user = await this.findById(id);
-
-    if (dto.action === "setujui") {
-      if (!dto.role) {
-        throw new BadRequestException("Pilih role untuk user yang disetujui.");
-      }
-      if (dto.role === "Admin Sistem") {
-        throw new BadRequestException("Role Admin Sistem tidak dapat diberikan.");
-      }
-      const validRoles = ["Pimpinan", "Admin Pusat", "Pekerja Stock Opname"];
-      if (!validRoles.includes(dto.role)) {
-        throw new BadRequestException(`Role tidak valid. Pilih antara: ${validRoles.join(", ")}`);
-      }
-
-      user.status = "aktif";
-      user.aktif = true;
-      user.role = dto.role;
-      user.catatan_admin = dto.catatan || null;
-      await this.repo.save(user);
-
-      // Send approval notification email
-      await this.notifications.sendApprovalEmail(user.email, user.nama, true, dto.role, dto.catatan);
-      this.logger.log(`Pendaftaran ${user.nama} (${user.email}) disetujui dengan role ${dto.role}`);
-    } else {
-      user.status = "ditolak";
-      user.aktif = false;
-      user.role = "Tanpa Role";
-      user.catatan_admin = dto.catatan || null;
-      await this.repo.save(user);
-
-      // Send rejection notification email
-      await this.notifications.sendApprovalEmail(user.email, user.nama, false, undefined, dto.catatan);
-      this.logger.log(`Pendaftaran ${user.nama} (${user.email}) ditolak.`);
-    }
-
-    return user;
+  async approveRegistration(
+    id: string,
+    _dto: { action: "setujui" | "tolak"; role?: string; catatan?: string },
+  ): Promise<User> {
+    throw new BadRequestException("Pendaftaran mandiri dinonaktifkan. Akun hanya dibuat langsung oleh Admin Sistem.");
   }
 
   async remove(id: string): Promise<void> {
     const user = await this.findById(id);
 
-    // Anti-lockout: Admin Sistem cannot be deleted
-    if (user.role === "Admin Sistem" || user.email === "othnielpatrick@apps.ipb.ac.id" || user.email === "othniel.patrick@apps.ipb.ac.id") {
+    const isMainAdmin = user.id === "U-001" || user.username === "Admin Sistem" || user.role === "Admin Sistem";
+    if (isMainAdmin) {
       throw new ForbiddenException("Akun Admin Sistem dilindungi dan tidak dapat dihapus.");
     }
 
     await this.repo.delete(id);
-    this.logger.log(`User ${user.nama} (${user.email}) dihapus.`);
+    this.logger.log(`User ${user.username || user.nama} dihapus.`);
   }
 
   async saveRaw(user: User): Promise<User> {

@@ -2,16 +2,22 @@ import { Injectable, UnauthorizedException, BadRequestException, Logger } from "
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcryptjs";
-import * as crypto from "crypto";
 import axios from "axios";
-import { UsersService } from "../users/users.service";
+import { UsersService, normalizeUsername, validatePasswordFormat } from "../users/users.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { LoginDto } from "./dto/login.dto";
-import { RegisterDto, ForgotPasswordDto, ResetPasswordDto } from "./dto/register.dto";
+import { ChangePasswordDto } from "./dto/register.dto";
+
+interface LoginAttemptRecord {
+  attempts: number;
+  lockedUntil: number;
+}
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  // Rate limiting / lock map keyed by lowercase normalized username
+  private readonly loginAttempts = new Map<string, LoginAttemptRecord>();
 
   constructor(
     private readonly users: UsersService,
@@ -21,168 +27,103 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    try {
-      // 1. Verify Cloudflare Turnstile token
-      if (dto.turnstileToken) {
-        await this.verifyTurnstile(dto.turnstileToken);
-      }
-
-      const email = dto.email.toLowerCase().trim();
-      const user = await this.users.findByEmail(email);
-      if (!user) {
-        throw new UnauthorizedException("Email atau kata sandi salah.");
-      }
-
-      // 2. Strict status checks with explicit Indonesian messages
-      if (user.status === "menunggu_verifikasi") {
-        throw new UnauthorizedException("Email belum diverifikasi. Silakan periksa inbox email Anda untuk menyelesaikan verifikasi.");
-      }
-
-      if (user.status === "menunggu_persetujuan") {
-        throw new UnauthorizedException("Akun Anda telah memverifikasi email dan saat ini sedang menunggu persetujuan dari Admin Sistem.");
-      }
-
-      if (user.status === "ditolak") {
-        throw new UnauthorizedException("Pendaftaran akun Anda ditolak oleh Admin Sistem.");
-      }
-
-      if (user.status === "nonaktif" || !user.aktif) {
-        throw new UnauthorizedException("Akun Anda telah dinonaktifkan. Silakan hubungi Admin Sistem.");
-      }
-
-      if (user.role === "Tanpa Role") {
-        throw new UnauthorizedException("Akses dicabut, hubungi Admin Sistem.");
-      }
-
-      // 3. Verify password
-      if (!user.password_hash) {
-        throw new UnauthorizedException("Email atau kata sandi salah.");
-      }
-      const valid = await bcrypt.compare(dto.password, user.password_hash);
-      if (!valid) {
-        throw new UnauthorizedException("Email atau kata sandi salah.");
-      }
-
-      // 4. Update last_login
-      try {
-        user.last_login = new Date();
-        await this.users.saveRaw(user);
-      } catch (saveErr) {
-        this.logger.warn(`Gagal memperbarui last_login: ${(saveErr as Error).message}`);
-      }
-
-      return this.generateTokens(user);
-    } catch (err) {
-      if (err instanceof UnauthorizedException || err instanceof BadRequestException) {
-        throw err;
-      }
-      this.logger.error(`Login error for ${dto.email}: ${(err as Error).message}`, (err as Error).stack);
-      throw err;
-    }
-  }
-
-  async register(dto: RegisterDto) {
-    // 1. Verify Turnstile token if provided
+    // 1. Verify Cloudflare Turnstile token
     if (dto.turnstileToken) {
       await this.verifyTurnstile(dto.turnstileToken);
     }
 
-    const email = dto.email.toLowerCase().trim();
-    const existing = await this.users.findByEmail(email).catch(() => null);
-    if (existing) {
-      throw new BadRequestException("Alamat email sudah terdaftar. Silakan masuk atau gunakan email lain.");
+    const username = normalizeUsername(dto.username);
+    const lockKey = username.toLowerCase();
+
+    // Check rate limit / temporary lockout (5 failed attempts = 15 minute lock)
+    const attemptRecord = this.loginAttempts.get(lockKey);
+    if (attemptRecord && attemptRecord.lockedUntil > Date.now()) {
+      const remainingMinutes = Math.ceil((attemptRecord.lockedUntil - Date.now()) / 60000);
+      throw new UnauthorizedException(
+        `Terlalu banyak percobaan masuk yang gagal. Akun dikunci sementara demi keamanan. Silakan coba lagi dalam ${remainingMinutes} menit.`,
+      );
     }
 
-    // 2. Generate secure email verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const user = await this.users.findByUsername(username);
 
-    // 3. Create user with status 'menunggu_persetujuan' and role 'Tanpa Role'
-    // (Never Admin Sistem - strictly enforced)
-    const user = await this.users.create({
-      nama: dto.nama.trim(),
-      email,
-      password: dto.password,
-      unit: dto.unit?.trim() || "Sekolah Vokasi (SV)",
-      harapan_role: dto.harapan_role?.trim() || null,
-      role: "Tanpa Role",
-      status: "menunggu_persetujuan",
-      aktif: false,
-      verification_token: verificationToken,
-    });
-
-    // 4. Send email verification link/code via Nodemailer
-    try {
-      await this.notifications.sendVerificationEmail(user.email, user.nama, verificationToken);
-    } catch (mailErr) {
-      this.logger.warn(`Pengiriman email verifikasi dilewati/gagal: ${(mailErr as Error).message}`);
-    }
-
-    return {
-      message: "Pendaftaran berhasil! Permintaan akun Anda telah diteruskan dan sedang menunggu persetujuan dari Admin Sistem.",
-      email: user.email,
-      verification_token: verificationToken, // Provided for testing environments
-    };
-  }
-
-  async verifyEmail(token: string) {
-    if (!token) {
-      throw new BadRequestException("Token verifikasi wajib disertakan.");
-    }
-
-    const user = await this.users.findByVerificationToken(token);
+    // Uniform error message for non-existent user or invalid password to avoid username enumeration
     if (!user) {
-      throw new BadRequestException("Token verifikasi tidak valid atau sudah digunakan.");
+      this.recordFailedAttempt(lockKey);
+      throw new UnauthorizedException("Username atau kata sandi salah.");
     }
 
-    // Advance status to 'menunggu_persetujuan' (awaiting Admin Sistem approval)
-    user.status = "menunggu_persetujuan";
-    user.verification_token = null as any;
-    await this.users.saveRaw(user);
-
-    return {
-      message: "Email berhasil diverifikasi! Akun Anda kini berstatus Menunggu Persetujuan Admin Sistem.",
-      email: user.email,
-    };
-  }
-
-  async forgotPassword(dto: ForgotPasswordDto) {
-    if (dto.turnstileToken) {
-      await this.verifyTurnstile(dto.turnstileToken);
+    // Check account status
+    if (user.status === "nonaktif" || !user.aktif) {
+      throw new UnauthorizedException("Akun Anda berstatus nonaktif. Silakan hubungi Admin Sistem.");
     }
 
-    const email = dto.email.toLowerCase().trim();
-    const user = await this.users.findByEmail(email).catch(() => null);
+    if (user.role === "Tanpa Role") {
+      throw new UnauthorizedException("Akses dicabut, hubungi Admin Sistem.");
+    }
 
-    if (user) {
-      const resetToken = crypto.randomBytes(32).toString("hex");
-      const expires = new Date(Date.now() + 3600 * 1000); // 1 hour
+    if (!user.password_hash) {
+      this.recordFailedAttempt(lockKey);
+      throw new UnauthorizedException("Username atau kata sandi salah.");
+    }
 
-      user.reset_password_token = resetToken;
-      user.reset_password_expires = expires;
+    const valid = await bcrypt.compare(dto.password, user.password_hash);
+    if (!valid) {
+      this.recordFailedAttempt(lockKey);
+      throw new UnauthorizedException("Username atau kata sandi salah.");
+    }
+
+    // Successful login: reset failed login attempts
+    this.loginAttempts.delete(lockKey);
+
+    try {
+      user.last_login = new Date();
       await this.users.saveRaw(user);
-
-      await this.notifications.sendPasswordResetEmail(user.email, user.nama, resetToken);
+    } catch (saveErr) {
+      this.logger.warn(`Gagal memperbarui last_login: ${(saveErr as Error).message}`);
     }
 
-    // Always return success for security (do not leak whether email exists)
-    return {
-      message: "Jika email Anda terdaftar, instruksi atur ulang kata sandi telah dikirimkan ke kotak masuk Anda.",
-    };
+    return this.generateTokens(user);
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
-    const user = await this.users.findByResetToken(dto.token);
-    if (!user || !user.reset_password_expires || user.reset_password_expires < new Date()) {
-      throw new BadRequestException("Token atur ulang kata sandi tidak valid atau telah kedaluwarsa.");
+  private recordFailedAttempt(lockKey: string) {
+    const now = Date.now();
+    const existing = this.loginAttempts.get(lockKey);
+    const attempts = (existing && existing.lockedUntil <= now ? 0 : existing?.attempts || 0) + 1;
+    let lockedUntil = 0;
+
+    if (attempts >= 5) {
+      // 15 minutes lockout
+      lockedUntil = now + 15 * 60 * 1000;
+      this.logger.warn(`Username [${lockKey}] dikunci sementara selama 15 menit setelah 5x gagal login.`);
     }
 
-    user.password_hash = await bcrypt.hash(dto.password, 10);
-    user.reset_password_token = null as any;
-    user.reset_password_expires = null as any;
+    this.loginAttempts.set(lockKey, { attempts, lockedUntil });
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.users.findByIdWithPassword(userId);
+
+    const validOld = await bcrypt.compare(dto.old_password, user.password_hash);
+    if (!validOld) {
+      throw new BadRequestException("Kata sandi lama tidak sesuai.");
+    }
+
+    const pVal = validatePasswordFormat(dto.new_password);
+    if (!pVal.valid) {
+      throw new BadRequestException(pVal.message);
+    }
+
+    const hash = await bcrypt.hash(dto.new_password, 10);
+    user.password_hash = hash;
+    user.must_change_password = false;
+    user.token_version = (user.token_version || 1) + 1; // Invalidate other older sessions
     await this.users.saveRaw(user);
 
+    this.logger.log(`User ${user.username || user.nama} berhasil memperbarui kata sandi.`);
+
     return {
-      message: "Kata sandi berhasil diperbarui. Silakan masuk menggunakan kata sandi baru Anda.",
+      message: "Kata sandi berhasil diperbarui.",
+      ...this.generateTokens(user),
     };
   }
 
@@ -201,23 +142,50 @@ export class AuthService {
     }
   }
 
-  private generateTokens(user: { id: string; email: string; role: string; nama: string; unit?: string }) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  private generateTokens(user: {
+    id: string;
+    username?: string;
+    nama: string;
+    role: string;
+    unit?: string;
+    jabatan?: string;
+    status?: string;
+    must_change_password?: boolean;
+    token_version?: number;
+  }) {
+    const username = user.username || user.nama;
+    const payload = {
+      sub: user.id,
+      username,
+      nama: username,
+      role: user.role,
+      token_version: user.token_version || 1,
+    };
+
     const access_token = this.jwt.sign(payload);
     const refresh_token = this.jwt.sign(payload, {
       secret: this.cfg.get("JWT_REFRESH_SECRET", "fallback_refresh_secret"),
       expiresIn: this.cfg.get("JWT_REFRESH_EXPIRES_IN", "7d"),
     });
+
     return {
       access_token,
       refresh_token,
-      user: { id: user.id, nama: user.nama, email: user.email, role: user.role, unit: user.unit },
+      user: {
+        id: user.id,
+        username,
+        nama: username, // Consistent display name across the entire app
+        role: user.role,
+        unit: user.unit,
+        jabatan: user.jabatan,
+        status: user.status,
+        must_change_password: !!user.must_change_password,
+      },
     };
   }
 
   private async verifyTurnstile(token: string): Promise<void> {
     const secret = this.cfg.get("TURNSTILE_SECRET_KEY") || "1x0000000000000000000000000000000AA";
-    // Allow standard test tokens and secrets in development/test environments
     if (
       token === "dummy-turnstile-token" ||
       token === "turnstile-dev-token-bypass" ||

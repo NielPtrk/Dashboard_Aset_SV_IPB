@@ -184,10 +184,11 @@ export type UserAccountStatus = "aktif" | "menunggu_verifikasi" | "menunggu_pers
 
 export interface UserRecord {
   id: string;
+  username?: string;
   nama: string;
   role: UserRole;
   unit: string;
-  email: string;
+  email?: string;
   aktif: boolean;
   status: UserAccountStatus;
   nip?: string;
@@ -195,6 +196,7 @@ export interface UserRecord {
   harapan_role?: string;
   catatan_admin?: string;
   lastLogin?: string;
+  must_change_password?: boolean;
 }
 
 export interface RuanganData {
@@ -590,15 +592,14 @@ const SEED_ASSET_COUNT = SEED_ASSETS.length;
 const SEED_USERS: UserRecord[] = [
   {
     id: "U-001",
-    nama: "Othniel Patrick Limbong",
+    username: "Admin Sistem",
+    nama: "Admin Sistem",
     role: "Admin Sistem",
     unit: "Sekolah Vokasi (SV)",
-    email: "othniel.patrick@apps.ipb.ac.id",
     aktif: true,
     status: "aktif",
-    nip: "19850112 201001 1 005",
-    jabatan: "Kepala Bagian Aset & Umum",
-    lastLogin: "2026-06-01 08:30",
+    jabatan: "Admin Sistem",
+    lastLogin: "Hari ini",
   },
 ];
 
@@ -1055,11 +1056,12 @@ interface DataStoreContextType {
   currentUser: UserRecord | null;
   setCurrentUser: (u: UserRecord | null) => void;
   clearSession: () => void;
-  addUser: (payload: Partial<UserRecord> & { nama: string; email: string; role?: UserRole }) => Promise<UserRecord>;
+  addUser: (payload: { username: string; password?: string; role?: UserRole; unit?: string; jabatan?: string }) => Promise<UserRecord>;
   updateUser: (id: string, updates: Partial<UserRecord>) => Promise<UserRecord>;
   updateUserRole: (id: string, newRole: UserRole) => Promise<UserRecord>;
   revokeUserRole: (id: string) => Promise<UserRecord>;
   approveUser: (id: string, action: "setujui" | "tolak", role?: UserRole, catatan?: string) => Promise<UserRecord>;
+  resetUserPassword: (id: string, temporaryPassword?: string) => Promise<{ message: string; username: string; password: string }>;
   deleteUser: (id: string) => Promise<void>;
   fetchUsers: () => Promise<void>;
 
@@ -1116,8 +1118,8 @@ function loadStoredUsers(): UserRecord[] {
           if (cleaned.length > 0) {
             const hasAdmin = cleaned.some(
               (u: any) =>
-                u.email === "othniel.patrick@apps.ipb.ac.id" ||
-                u.email === "othnielpatrick@apps.ipb.ac.id"
+                u.username === "Admin Sistem" ||
+                u.role === "Admin Sistem"
             );
             if (!hasAdmin) cleaned.unshift(SEED_USERS[0]);
             return cleaned;
@@ -1140,15 +1142,18 @@ function getInitialCurrentUser(): UserRecord | null {
         const saved = localStorage.getItem("current_user");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed && parsed.nama && parsed.email) {
+          if (parsed && (parsed.username || parsed.nama)) {
+            const displayName = parsed.username || parsed.nama;
             return {
               id: parsed.id || "U-001",
-              nama: parsed.nama,
-              email: parsed.email,
+              username: displayName,
+              nama: displayName,
               role: (parsed.role as UserRole) || "Admin Sistem",
               unit: parsed.unit || "Sekolah Vokasi (SV)",
+              jabatan: parsed.jabatan,
               aktif: parsed.aktif ?? true,
               status: parsed.status || "aktif",
+              must_change_password: !!parsed.must_change_password,
             };
           }
         }
@@ -1222,20 +1227,25 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
         ];
         const cleaned: UserRecord[] = res.data.data
           .filter((u: any) => !dummyEmails.includes(u.email?.toLowerCase?.() ?? ""))
-          .map((u: any) => ({
-            id: String(u.id),
-            nama: u.nama || "Pengguna",
-            email: u.email || "",
-            role: (u.role || "Tanpa Role") as UserRole,
-            unit: u.unit || "Sekolah Vokasi (SV)",
-            aktif: Boolean(u.aktif),
-            status: (u.status || "menunggu_persetujuan") as UserAccountStatus,
-            nip: u.nip || u.no_telp || "",
-            jabatan: u.jabatan || "",
-            harapan_role: u.harapan_role || "",
-            catatan_admin: u.catatan_admin || "",
-            lastLogin: u.last_login ? new Date(u.last_login).toLocaleString("id-ID") : (u.lastLogin || "—"),
-          }));
+          .map((u: any) => {
+            const displayName = u.username || u.nama || "Pengguna";
+            return {
+              id: String(u.id),
+              username: displayName,
+              nama: displayName,
+              email: u.email || "",
+              role: (u.role || "Tanpa Role") as UserRole,
+              unit: u.unit || "Sekolah Vokasi (SV)",
+              aktif: Boolean(u.aktif),
+              status: (u.status || "aktif") as UserAccountStatus,
+              nip: u.nip || "",
+              jabatan: u.jabatan || "",
+              harapan_role: u.harapan_role || "",
+              catatan_admin: u.catatan_admin || "",
+              lastLogin: u.last_login ? new Date(u.last_login).toLocaleString("id-ID") : (u.lastLogin || "—"),
+              must_change_password: Boolean(u.must_change_password),
+            };
+          });
 
         setUsers((prev) => {
           const backendIds = new Set(cleaned.map((u) => u.id));
@@ -1243,8 +1253,8 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
           const merged = [...cleaned, ...localOnly];
           const hasAdmin = merged.some(
             (u) =>
-              u.email === "othniel.patrick@apps.ipb.ac.id" ||
-              u.email === "othnielpatrick@apps.ipb.ac.id"
+              u.username === "Admin Sistem" ||
+              u.role === "Admin Sistem"
           );
           if (!hasAdmin) merged.unshift(SEED_USERS[0]);
           return merged;
@@ -1256,34 +1266,38 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const addUser = useCallback(async (payload: Partial<UserRecord> & { nama: string; email: string; role?: UserRole }): Promise<UserRecord> => {
-    const isDirectAdd = payload.status === "aktif" || payload.aktif === true || payload.role !== undefined;
+  const addUser = useCallback(async (payload: { username: string; password?: string; role?: UserRole; unit?: string; jabatan?: string }): Promise<UserRecord> => {
+    const normUsername = payload.username.trim().replace(/\s+/g, " ");
     const newUser: UserRecord = {
       id: `U-${Date.now()}`,
-      nama: payload.nama,
-      email: payload.email,
-      role: payload.role || "Tanpa Role",
+      username: normUsername,
+      nama: normUsername,
+      role: payload.role || "Pekerja Stock Opname",
       unit: payload.unit || "Sekolah Vokasi (SV)",
-      aktif: isDirectAdd ? true : (payload.aktif ?? false),
-      status: isDirectAdd ? "aktif" : (payload.status ?? "menunggu_persetujuan"),
-      nip: payload.nip,
+      aktif: true,
+      status: "aktif",
       jabatan: payload.jabatan,
-      harapan_role: payload.harapan_role,
+      must_change_password: false,
     };
     try {
-      const res = await apiClient.post<UserRecord>("/users", {
-        nama: newUser.nama,
-        email: newUser.email,
+      const res = await apiClient.post<any>("/users", {
+        username: normUsername,
+        nama: normUsername,
         role: newUser.role,
         unit: newUser.unit,
-        harapan_role: newUser.harapan_role,
-        status: newUser.status,
-        aktif: newUser.aktif,
-        password: "TempPass@" + Math.random().toString(36).slice(2, 10),
+        jabatan: newUser.jabatan,
+        password: payload.password,
       });
-      Object.assign(newUser, res.data);
-    } catch {
-      // offline fallback
+      if (res.data) {
+        newUser.id = String(res.data.id || newUser.id);
+        newUser.username = res.data.username || newUser.username;
+        newUser.nama = res.data.nama || newUser.nama;
+      }
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        throw new Error(err.response.data.message);
+      }
+      throw err;
     }
     setUsers((prev) => {
       const updated = [...prev, newUser];
@@ -1295,6 +1309,9 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateUser = useCallback(async (id: string, updates: Partial<UserRecord>): Promise<UserRecord> => {
     let merged: UserRecord | undefined;
+    if (updates.username && !updates.nama) {
+      updates.nama = updates.username;
+    }
     setUsers((prev) => {
       const updated = prev.map((u) => {
         if (u.id !== id) return u;
@@ -1306,8 +1323,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     });
     try {
       await apiClient.patch(`/users/${id}`, updates);
-    } catch {
-      // ignore — offline
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        throw new Error(err.response.data.message);
+      }
+      throw err;
     }
     return merged!;
   }, []);
@@ -1317,7 +1337,7 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     setUsers((prev) => {
       const updated = prev.map((u) => {
         if (u.id !== id) return u;
-        if (u.email === "othniel.patrick@apps.ipb.ac.id" || u.email === "othnielpatrick@apps.ipb.ac.id") return u; // anti-lockout
+        if (u.username === "Admin Sistem" || u.role === "Admin Sistem") return u; // anti-lockout
         merged = { ...u, role: newRole };
         return merged;
       });
@@ -1326,8 +1346,11 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     });
     try {
       await apiClient.patch(`/users/${id}/role`, { role: newRole });
-    } catch {
-      // ignore
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        throw new Error(err.response.data.message);
+      }
+      throw err;
     }
     return merged!;
   }, []);
@@ -1359,21 +1382,31 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     return merged!;
   }, []);
 
+  const resetUserPassword = useCallback(async (id: string, temporaryPassword?: string): Promise<{ message: string; username: string; password: string }> => {
+    const res = await apiClient.patch<{ message: string; username: string; password: string }>(`/users/${id}/reset-password`, {
+      password: temporaryPassword,
+    });
+    return res.data;
+  }, []);
+
   const deleteUser = useCallback(async (id: string): Promise<void> => {
     setUsers((prev) => {
       const updated = prev.filter(
         (u) =>
           u.id !== id &&
-          u.email !== "othniel.patrick@apps.ipb.ac.id" &&
-          u.email !== "othnielpatrick@apps.ipb.ac.id"
+          u.username !== "Admin Sistem" &&
+          u.role !== "Admin Sistem"
       );
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
     try {
       await apiClient.delete(`/users/${id}`);
-    } catch {
-      // ignore
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        throw new Error(err.response.data.message);
+      }
+      throw err;
     }
   }, []);
   const fetchRuangan = useCallback(async () => {
@@ -3081,6 +3114,7 @@ export function DataStoreProvider({ children }: { children: React.ReactNode }) {
     updateUserRole,
     revokeUserRole,
     approveUser,
+    resetUserPassword,
     deleteUser,
     upsertAsset,
     insertBulkAssets,

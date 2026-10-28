@@ -1,25 +1,22 @@
 import apiClient from "./apiClient";
 
 export interface LoginPayload {
-  email: string;
+  username: string;
   password: string;
   turnstileToken?: string; // Cloudflare Turnstile verification token
 }
 
-export interface RegisterPayload {
-  nama: string;
-  email: string;
-  password: string;
-  unit?: string;
-  harapan_role?: string;
-  turnstileToken?: string;
+export interface ChangePasswordPayload {
+  old_password: string;
+  new_password: string;
 }
 
 export interface UpdateProfilePayload {
   nama?: string;
-  email?: string;
+  username?: string;
   no_telp?: string;
   lokasi?: string;
+  jabatan?: string;
 }
 
 export interface AuthTokens {
@@ -27,17 +24,23 @@ export interface AuthTokens {
   refresh_token: string;
   user: {
     id: string;
+    username: string;
     nama: string;
-    email: string;
     role: string;
     unit?: string;
+    jabatan?: string;
     status?: string;
+    must_change_password?: boolean;
   };
 }
 
 export const authService = {
   async login(payload: LoginPayload): Promise<AuthTokens> {
-    const { data } = await apiClient.post<AuthTokens>("/auth/login", payload);
+    const { data } = await apiClient.post<AuthTokens>("/auth/login", {
+      username: payload.username.trim().replace(/\s+/g, " "),
+      password: payload.password,
+      turnstileToken: payload.turnstileToken,
+    });
     localStorage.removeItem("user_logged_out");
     localStorage.setItem("access_token", data.access_token);
     localStorage.setItem("refresh_token", data.refresh_token);
@@ -45,28 +48,20 @@ export const authService = {
     return data;
   },
 
-  async register(payload: RegisterPayload): Promise<{ message: string; email: string; verification_token?: string }> {
-    const { data } = await apiClient.post<{ message: string; email: string; verification_token?: string }>(
-      "/auth/register",
-      payload,
-    );
-    return data;
-  },
-
-  async verifyEmail(token: string): Promise<{ message: string; email?: string }> {
-    const { data } = await apiClient.get<{ message: string; email?: string }>("/auth/verify-email", {
-      params: { token },
-    });
-    return data;
-  },
-
-  async forgotPassword(payload: { email: string; turnstileToken?: string }): Promise<{ message: string }> {
-    const { data } = await apiClient.post<{ message: string }>("/auth/forgot-password", payload);
-    return data;
-  },
-
-  async resetPassword(payload: { token: string; password: string }): Promise<{ message: string }> {
-    const { data } = await apiClient.post<{ message: string }>("/auth/reset-password", payload);
+  async changePassword(oldOrPayload: ChangePasswordPayload | string, newPassword?: string): Promise<{ message: string; access_token?: string; refresh_token?: string; user?: any }> {
+    const payload: ChangePasswordPayload = typeof oldOrPayload === "string"
+      ? { old_password: oldOrPayload, new_password: newPassword || "" }
+      : oldOrPayload;
+    const { data } = await apiClient.post<{ message: string; access_token?: string; refresh_token?: string; user?: any }>("/auth/change-password", payload);
+    if (data.access_token) {
+      localStorage.setItem("access_token", data.access_token);
+    }
+    if (data.refresh_token) {
+      localStorage.setItem("refresh_token", data.refresh_token);
+    }
+    if (data.user) {
+      localStorage.setItem("current_user", JSON.stringify(data.user));
+    }
     return data;
   },
 
